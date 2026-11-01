@@ -234,8 +234,7 @@ public static class WpfRenderTest
                 W($"⚠ 截图失败: {ex.Message}");
             }
 
-            return sb.ToString();
-        }
+            return sb.ToString();        }
         catch (Exception ex)
         {
             W($"❌ 渲染自测异常: {ex.GetType().Name}: {ex.Message}");

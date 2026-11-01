@@ -17,7 +17,7 @@ public partial class App : Application
     {
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
         var args = e.Args;
-        Headless = args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--mounttest" or "--diag" or "--selftest");
+        Headless = args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest");
         int i = Array.IndexOf(args, "--diag");
         int st = Array.IndexOf(args, "--selftest");
         if (st >= 0)
@@ -71,6 +71,33 @@ public partial class App : Application
             // 功能级自测：..上级 / 面包屑 / 元数据 / 图标 / 状态栏计数 / 提取落盘
             string report = Services.FeatureSelfTest.Run(args[ft + 1]);
             WriteReport(report, "basalt_featuretest.txt");
+            Shutdown();
+            return;
+        }
+        int ct = Array.IndexOf(args, "--containertest");
+        if (ct >= 0 && ct + 1 < args.Length)
+        {
+            // 容器自测：zip/iso/rar/7z/SFX 的识别、列举、提取
+            string report = Services.ContainerSelfTest.Run(args[ct + 1]);
+            WriteReport(report, "basalt_containertest.txt");
+            Shutdown();
+            return;
+        }
+        int crt = Array.IndexOf(args, "--containerui");
+        if (crt >= 0 && crt + 1 < args.Length)
+        {
+            // 容器 UI 渲染自测：真实窗口里展开浏览归档并截图
+            string report = Services.ContainerRenderTest.Run(args[crt + 1]);
+            WriteReport(report, "basalt_containerui.txt");
+            Shutdown();
+            return;
+        }
+        int nct = Array.IndexOf(args, "--nestedtest");
+        if (nct >= 0 && nct + 1 < args.Length)
+        {
+            // 虚拟盘内容器链路：VMDK/VHD 内的 zip/iso → 实体化 → 识别 → 浏览 → 提取
+            string report = Services.NestedContainerSelfTest.Run(args[nct + 1]);
+            WriteReport(report, "basalt_nestedtest.txt");
             Shutdown();
             return;
         }

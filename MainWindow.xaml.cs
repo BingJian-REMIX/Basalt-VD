@@ -124,8 +124,15 @@ public partial class MainWindow : Window
         if (item != null) _vm.OpenItem(item);
     }
 
-    private void ExtractContext_Click(object sender, RoutedEventArgs e)
+    /// <summary>右键"展开为容器"：把选中的归档文件在 Basalt 内直接展开浏览。</summary>
+    private void ExpandContext_Click(object sender, RoutedEventArgs e)
     {
+        var item = ContextItem();
+        if (item == null || item.IsDirectory) return;
+        _vm.ExpandAsContainer(item);
+    }
+
+    private void ExtractContext_Click(object sender, RoutedEventArgs e)    {
         var item = ContextItem();
         if (item == null) return;
         if (item.IsDirectory)

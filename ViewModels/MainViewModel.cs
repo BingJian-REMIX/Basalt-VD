@@ -11,6 +11,12 @@ namespace Basalt.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
+    /// <summary>
+    /// 磁盘栈：在容器（zip/iso…）里再展开容器时可逐层回退。
+    /// 每一项记录"上一层磁盘 + 当时所在的路径"。
+    /// </summary>
+    private readonly Stack<(IVirtualDisk Disk, string Path)> _diskStack = new();
+
     private IVirtualDisk? _disk;
     private FolderNode? _selectedFolder;
     private FileItem? _selectedFile;
@@ -128,7 +134,7 @@ public sealed class MainViewModel : ViewModelBase
 
             var root = new FolderNode
             {
-                Name = disk.DriveLetter is char letter ? $"{letter}:\\" : $"{disk.DisplayName}（内存解析）",
+                Name = RootLabel(disk),
                 FullPath = disk.DriveLetter is char l ? $"{l}:\\" : "",
                 IconSource = IconProvider.FolderIcon
             };
@@ -139,9 +145,13 @@ public sealed class MainViewModel : ViewModelBase
             SelectedFolder = root;
 
             CommandManager.InvalidateRequerySuggested();
-            Status = disk.DriveLetter is char lt
-                ? $"已挂载 → {lt}:" + (disk is VhdDiskService { MountedReadOnly: true } ? "（只读）" : "")
-                : "已解析（内存模式，无盘符）";
+            Status = disk switch
+            {
+                ContainerDiskService c => $"已展开 {Path.GetFileName(c.DisplayName)}（{ContainerDetector.DisplayName(c.Format)}）",
+                _ when disk.DriveLetter is char lt =>
+                    $"已挂载 → {lt}:" + (disk is VhdDiskService { MountedReadOnly: true } ? "（只读）" : ""),
+                _ => "已解析（内存模式，无盘符）"
+            };
             // 若存在不可读分区（如 ext4 / Linux），追加说明，让用户知道为什么某些分区列不出文件
             if (disk is VmdkDiskService vmdk && !string.IsNullOrEmpty(vmdk.UnsupportedNote))
                 Status += "  ⚠ " + vmdk.UnsupportedNote;
@@ -157,10 +167,19 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>根节点显示名：VHD 用盘符，VMDK 标"内存解析"，容器标归档格式。</summary>
+    private static string RootLabel(IVirtualDisk disk) => disk switch
+    {
+        ContainerDiskService c => $"{Path.GetFileName(c.DisplayName)}（{ContainerDetector.DisplayName(c.Format)}）",
+        _ => disk.DriveLetter is char letter ? $"{letter}:\\" : $"{disk.DisplayName}（内存解析）"
+    };
+
     private void Unmount()
     {
         try
         {
+            while (_diskStack.Count > 0)
+                _diskStack.Pop().Disk.Dispose();
             _disk?.Dispose();
             _disk = null;
             FolderNode.ChildLoader = null;
@@ -198,18 +217,21 @@ public sealed class MainViewModel : ViewModelBase
         var items = new List<FileItem>();
         try
         {
-            // 顶部插入 ".." 返回上级（已在最顶层则不显示）
-            string? parent = _disk.GetParentPath(path);
-            if (parent != null)
+            // 顶部插入 ".." 返回上级
+            // 在容器根目录时，".." 的语义是"退回上一个磁盘"（VMDK/VHD → 容器 → 容器内层）
+            bool popsStack = _diskStack.Count > 0 && _disk is ContainerDiskService && path.Length == 0;
+            string? parent = popsStack ? null : _disk.GetParentPath(path);
+            if (popsStack || parent != null)
             {
                 items.Add(new FileItem
                 {
                     Name = "..",
-                    FullPath = parent,
+                    FullPath = parent ?? "",
                     SizeText = "",
                     IconSource = IconProvider.FolderIcon,
                     IsDirectory = true,
-                    IsParentEntry = true
+                    IsParentEntry = true,
+                    PopsDiskStack = popsStack
                 });
             }
 
@@ -263,16 +285,26 @@ public sealed class MainViewModel : ViewModelBase
         LoadDirectory(path);
     }
 
-    /// <summary>双击列表项：目录 → 进入；文件 → 用系统默认程序打开。</summary>
+    /// <summary>双击列表项：目录 → 进入；容器文件 → 展开浏览；普通文件 → 用系统默认程序打开。</summary>
     public void OpenItem(FileItem? item)
     {
         if (item == null || _disk == null) return;
 
         if (item.IsDirectory)
         {
+            // ".." 在容器根目录 → 退回上一个磁盘
+            if (item.IsParentEntry && item.PopsDiskStack)
+            {
+                PopDiskStack();
+                return;
+            }
             LoadDirectory(item.FullPath);
             return;
         }
+
+        // 容器文件（zip/iso/rar/7z/SFX…）→ 在 Basalt 内展开浏览
+        if (TryOpenAsContainer(item))
+            return;
 
         try
         {
@@ -292,17 +324,109 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 尝试把文件当作容器展开浏览。成功返回 true（已切换视图），否则 false。
+    /// </summary>
+    public bool TryOpenAsContainer(FileItem item) => TryOpenAsContainer(item, pushStack: true);
+
+    /// <summary>右键菜单用的展开入口：展开失败时给出明确提示。</summary>
+    public void ExpandAsContainer(FileItem item)
+    {
+        if (TryOpenAsContainer(item, pushStack: true)) return;
+        Status = $"{item.Name} 不是可展开的归档文件（zip/iso/7z/rar/cab/自解压程序）。";
+    }
+
+    private bool TryOpenAsContainer(FileItem item, bool pushStack)
+    {
+        try
+        {
+            // 先实体化：VMDK/容器内的文件必须先导出到真实路径，7-Zip 才能读
+            string real = _disk!.MaterializeToTemp(item.FullPath);
+
+            var fmt = ContainerDetector.DetectFile(real);
+            if (fmt == ContainerFormat.None)
+                return false;
+
+            // 自解压 exe 要确认内嵌的确实是归档
+            if (fmt == ContainerFormat.SelfExtracting && !ContainerDetector.IsContainerFile(real))
+                return false;
+
+            var container = new ContainerDiskService(real);
+
+            // 把当前磁盘压栈，容器根的 ".." 可退回
+            _diskStack.Push((_disk, CurrentPath));
+            _disk = container;
+            FolderNode.ChildLoader = p => container.GetDirectories(p);
+
+            Roots.Clear();
+            var root = new FolderNode
+            {
+                Name = $"{Path.GetFileName(real)}（{ContainerDetector.DisplayName(fmt)}）",
+                FullPath = "",
+                IconSource = IconProvider.FolderIcon
+            };
+            root.LoadChildren();
+            root.IsExpanded = true;
+            Roots.Add(root);
+            SelectedFolder = root;
+
+            Status = $"已展开 {Path.GetFileName(real)}（{ContainerDetector.DisplayName(fmt)}）";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Status = $"展开失败：{ex.Message}";
+            return false;
+        }
+    }
+
+    /// <summary>退回上一个磁盘（从容器返回 VMDK/VHD）。</summary>
+    private void PopDiskStack()
+    {
+        if (_diskStack.Count == 0) return;
+
+        var (disk, path) = _diskStack.Pop();
+        _disk?.Dispose();
+        _disk = disk;
+        FolderNode.ChildLoader = p => disk.GetDirectories(p);
+
+        Roots.Clear();
+        var root = new FolderNode
+        {
+            Name = RootLabel(disk),
+            FullPath = disk.DriveLetter is char l ? $"{l}:\\" : "",
+            IconSource = IconProvider.FolderIcon
+        };
+        root.LoadChildren();
+        root.IsExpanded = true;
+        Roots.Add(root);
+        SelectedFolder = root;
+
+        LoadDirectory(path);
+        Status = "已返回上一个磁盘。";
+    }
+
     /// <summary>返回上级目录。</summary>
     private void GoUp()
     {
         if (_disk == null) return;
+        // 容器根目录 → 退回上一个磁盘
+        if (_diskStack.Count > 0 && _disk is ContainerDiskService && CurrentPath.Length == 0)
+        {
+            PopDiskStack();
+            return;
+        }
         string? parent = _disk.GetParentPath(CurrentPath);
         if (parent == null) return;
         LoadDirectory(parent);
     }
 
     private bool CanGoUp()
-        => _disk != null && _disk.GetParentPath(CurrentPath) != null;
+    {
+        if (_disk == null) return false;
+        if (_diskStack.Count > 0 && _disk is ContainerDiskService && CurrentPath.Length == 0) return true;
+        return _disk.GetParentPath(CurrentPath) != null;
+    }
 
     /// <summary>读取选中项的完整元数据（属性窗口用）。</summary>
     public FileMetadata? GetMetadata(FileItem? item)

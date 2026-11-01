@@ -50,4 +50,11 @@ public interface IVirtualDisk : IDisposable
     /// 构造面包屑层级链（从根到当前）。每项含显示名与可跳转路径。
     /// </summary>
     List<ViewModels.BreadcrumbItem> BuildBreadcrumb(string path);
+
+    /// <summary>
+    /// 把镜像内的文件"实体化"到本地真实路径，返回该真实路径。
+    /// 用于把归档文件交给外部程序（7-Zip）处理 —— 归档必须先落地成真实文件。
+    /// VHD：路径本身就是真实的，直接返回；VMDK/容器：需先导出到临时目录。
+    /// </summary>
+    string MaterializeToTemp(string path);
 }

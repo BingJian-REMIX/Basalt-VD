@@ -20,6 +20,12 @@ public sealed class FileItem
     /// <summary>是否是".." 返回上级项（VHD 根目录、VMDK 镜像根下没有该项）。</summary>
     public bool IsParentEntry { get; init; }
 
+    /// <summary>
+    /// 该".." 是否表示"返回上一个磁盘"（在容器根目录时）。
+    /// 容器展开后，根目录的 ".." 应退回原先的虚拟磁盘，而不是留在容器里。
+    /// </summary>
+    public bool PopsDiskStack { get; init; }
+
     /// <summary>文件属性（只读/隐藏/存档…），供属性窗口展示。</summary>
     public string AttributesText { get; init; } = "";
 }

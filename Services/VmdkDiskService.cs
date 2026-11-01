@@ -287,35 +287,42 @@ public sealed class VmdkDiskService : IVirtualDisk
 
     public List<BreadcrumbItem> BuildBreadcrumb(string path)
     {
-        var list = new List<BreadcrumbItem>();
-        list.Add(new BreadcrumbItem { Display = DisplayName, Path = "" });
-
-        if (string.IsNullOrEmpty(path)) return list;
-
-        // "0\Users\Admin" → 镜像 > 分区 N > Users > Admin
-        int sep = path.IndexOf('\\');
-        string indexText = sep < 0 ? path : path[..sep];
-        if (!int.TryParse(indexText, out int idx) || idx < 0 || idx >= _fileSystems.Count)
-            return list;
-
-        string label = _fileSystems[idx] != null
-            ? $"分区 {idx + 1}（{_fileSystems[idx]!.FriendlyName}）"
-            : $"分区 {idx + 1}（{_partitionTypes[idx]}）";
-        list.Add(new BreadcrumbItem { Display = label, Path = indexText });
-
-        if (sep >= 0)
+        var list = new List<BreadcrumbItem>
         {
-            string rest = path[(sep + 1)..];
-            string acc = indexText;
-            foreach (var seg in rest.Split('\\', StringSplitOptions.RemoveEmptyEntries))
+            new() { Display = DisplayName, Path = "" }
+        };
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            // "0\Users\Admin" → 镜像 > 分区 N > Users > Admin
+            int sep = path.IndexOf('\\');
+            string indexText = sep < 0 ? path : path[..sep];
+            if (int.TryParse(indexText, out int idx) && idx >= 0 && idx < _fileSystems.Count)
             {
-                acc += "\\" + seg;
-                list.Add(new BreadcrumbItem { Display = seg, Path = acc });
+                string label = _fileSystems[idx] != null
+                    ? $"分区 {idx + 1}（{_fileSystems[idx]!.FriendlyName}）"
+                    : $"分区 {idx + 1}（{_partitionTypes[idx]}）";
+                list.Add(new BreadcrumbItem { Display = label, Path = indexText });
+
+                if (sep >= 0)
+                {
+                    string rest = path[(sep + 1)..];
+                    string acc = indexText;
+                    foreach (var seg in rest.Split('\\', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        acc += "\\" + seg;
+                        list.Add(new BreadcrumbItem { Display = seg, Path = acc });
+                    }
+                }
             }
         }
 
+        // 始终标记最后一项：它既是"当前级"，也是最后一级（不显示尾部分隔符）
         if (list.Count > 0)
-            list[^1] = new BreadcrumbItem { Display = list[^1].Display, Path = list[^1].Path, IsCurrent = true, IsLast = true };
+        {
+            var last = list[^1];
+            list[^1] = new BreadcrumbItem { Display = last.Display, Path = last.Path, IsCurrent = true, IsLast = true };
+        }
         return list;
     }
 
@@ -323,5 +330,23 @@ public sealed class VmdkDiskService : IVirtualDisk
     {
         foreach (var fs in _fileSystems) fs?.Dispose();
         _disk.Dispose();
+    }
+
+    /// <summary>VMDK 内的文件不存在于真实磁盘 —— 导出到临时目录后才能交给外部程序。</summary>
+    public string MaterializeToTemp(string path)
+    {
+        if (!TryGetFileSystem(path, out var fs, out _, out string inner))
+            throw new FileNotFoundException("找不到 VMDK 内的文件。", path);
+
+        string dir = Path.Combine(Path.GetTempPath(), "BasaltOpen");
+        Directory.CreateDirectory(dir);
+        string temp = Path.Combine(dir, Path.GetFileName(inner));
+
+        using (var src = fs.OpenFile(inner, FileMode.Open, FileAccess.Read))
+        using (var dst = File.Create(temp))
+        {
+            src.CopyTo(dst);
+        }
+        return temp;
     }
 }

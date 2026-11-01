@@ -145,10 +145,17 @@ public sealed class VhdDiskService : IVirtualDisk
             list.Add(new BreadcrumbItem { Display = seg, Path = acc });
         }
 
+        // 始终标记最后一项：它既是"当前级"，也是最后一级（不显示尾部分隔符）
         if (list.Count > 0)
-            list[^1] = new BreadcrumbItem { Display = list[^1].Display, Path = list[^1].Path, IsCurrent = true, IsLast = true };
+        {
+            var last = list[^1];
+            list[^1] = new BreadcrumbItem { Display = last.Display, Path = last.Path, IsCurrent = true, IsLast = true };
+        }
         return list;
     }
 
     public void Dispose() => _mount.Dispose();
+
+    /// <summary>VHD 里的文件本来就在真实磁盘上，直接返回原路径。</summary>
+    public string MaterializeToTemp(string path) => path;
 }

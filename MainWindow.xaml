@@ -262,20 +262,16 @@
                             <Setter Property="HorizontalContentAlignment" Value="Left"/>
                             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                         </Style>
-                        <Style TargetType="DataGridColumn">
-                            <Setter Property="MinWidth" Value="40"/>
-                        </Style>
                     </DataGrid.Resources>
 
                     <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="图标" Width="42">
+                        <DataGridTemplateColumn Header="图标" Width="52" MinWidth="52">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Grid Width="18" Height="18">
+                                    <Grid Width="18" Height="18" Margin="6,0">
                                         <!-- ".." 返回上级用上箭头图标 -->
                                         <TextBlock Text="⬆" FontSize="13" VerticalAlignment="Center"
-                                                   HorizontalAlignment="Center"
-                                                   Visibility="Collapsed">
+                                                   HorizontalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
@@ -303,18 +299,26 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <DataGridTextColumn Header="文件名" Width="2*" Binding="{Binding Name}"/>
+                        <!-- 文件名列必须给 MinWidth：DataGridColumn 不在可视树上，
+                             隐式 Style 里的 MinWidth 不会生效，star 宽度会被压到极窄 -->
+                        <DataGridTextColumn Header="文件名" Width="*" MinWidth="180"
+                                            Binding="{Binding Name}"/>
 
-                        <DataGridTextColumn Header="大小" Width="110" Binding="{Binding SizeText}"/>
+                        <DataGridTextColumn Header="大小" Width="110" MinWidth="80"
+                                            Binding="{Binding SizeText}"/>
 
-                        <DataGridTextColumn Header="修改时间" Width="160" Binding="{Binding ModifiedText}"/>
+                        <DataGridTextColumn Header="修改时间" Width="160" MinWidth="130"
+                                            Binding="{Binding ModifiedText}"/>
 
-                        <DataGridTextColumn Header="创建时间" Width="160" Binding="{Binding CreatedText}"/>
+                        <DataGridTextColumn Header="创建时间" Width="160" MinWidth="130"
+                                            Binding="{Binding CreatedText}"/>
                     </DataGrid.Columns>
 
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="打开" Click="OpenContext_Click"/>
+                            <MenuItem Header="展开为容器" Click="ExpandContext_Click"
+                                      ToolTip="在 Basalt 内直接浏览压缩包 / ISO / 自解压程序的内容"/>
                             <MenuItem Header="提取文件到本地" Click="ExtractContext_Click"/>
                             <MenuItem Header="属性" Click="PropertiesContext_Click"/>
                             <Separator/>
