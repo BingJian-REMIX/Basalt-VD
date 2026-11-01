@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LTRData.DiscUtils.Core" Version="1.0.47" />
+    <PackageReference Include="LTRData.DiscUtils.Fat" Version="1.0.47" />
+    <PackageReference Include="LTRData.DiscUtils.Ntfs" Version="1.0.47" />
+    <PackageReference Include="LTRData.DiscUtils.Vmdk" Version="1.0.47" />
+    <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
+  </ItemGroup>
+
+</Project>
