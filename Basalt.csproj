@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\basalt.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +16,17 @@
     <PackageReference Include="LTRData.DiscUtils.Ntfs" Version="1.0.47" />
     <PackageReference Include="LTRData.DiscUtils.Vmdk" Version="1.0.47" />
     <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
+  </ItemGroup>
+
+  <!-- 应用图标与标题栏图标：声明为 Resource 后 WPF 会生成 pack URI（/Basalt;component/Assets/...） -->
+  <ItemGroup>
+    <Resource Include="Assets\basalt.ico" />
+    <Resource Include="Assets\basalt-16.png" />
+    <Resource Include="Assets\basalt-32.png" />
+    <Resource Include="Assets\basalt-48.png" />
+    <Resource Include="Assets\basalt-64.png" />
+    <Resource Include="Assets\basalt-128.png" />
+    <Resource Include="Assets\basalt-256.png" />
   </ItemGroup>
 
 </Project>

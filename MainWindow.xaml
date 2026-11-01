@@ -2,12 +2,60 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="clr-namespace:Basalt.Models"
+        xmlns:vm="clr-namespace:Basalt.ViewModels"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResizeWithGrip"
-        Title="Basalt — 虚拟磁盘管理器" Height="640" Width="1000"
-        MinHeight="480" MinWidth="800">
+        Icon="/Basalt;component/Assets/basalt.ico"
+        Title="Basalt — 虚拟磁盘管理器" Height="680" Width="1080"
+        MinHeight="520" MinWidth="880">
+
+    <Window.Resources>
+        <!-- 列表/树通用：去掉系统虚线焦点框，改为整行高亮 -->
+        <Style x:Key="IconImageStyle" TargetType="Image">
+            <Setter Property="Width" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+        </Style>
+
+        <!-- 面包屑按钮：像超链接一样可点 -->
+        <Style x:Key="CrumbButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 面包屑分隔符 -->
+        <Style x:Key="CrumbSeparatorStyle" TargetType="TextBlock">
+            <Setter Property="Text" Value="›"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgMutedBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="1,0"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+    </Window.Resources>
 
     <Border Background="{DynamicResource BgBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
@@ -16,18 +64,23 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="36"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="26"/>
+                <RowDefinition Height="28"/>
             </Grid.RowDefinitions>
 
-            <!-- 自定义标题栏 -->
+            <!-- ============ 自定义标题栏 ============ -->
             <Border Grid.Row="0" Background="{DynamicResource PanelBrush}"
                     CornerRadius="10,10,0,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <TextBlock Text="⬛ Basalt — 虚拟磁盘管理器"
-                               Foreground="{DynamicResource FgBrush}"
-                               VerticalAlignment="Center" Margin="12,0"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
+                        <Image Source="/Basalt;component/Assets/basalt-32.png" Width="20" Height="20" Margin="0,0,8,0"
+                               VerticalAlignment="Center"/>
+                        <TextBlock Text="Basalt — 虚拟磁盘管理器"
+                                   Foreground="{DynamicResource FgBrush}"
+                                   VerticalAlignment="Center" FontSize="12.5"/>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="🌙" Width="36" Height="36" Padding="0"
                                 Background="Transparent" Foreground="{DynamicResource FgBrush}"
@@ -46,45 +99,95 @@
                 </Grid>
             </Border>
 
-            <!-- 工具栏 + Breadcrumb -->
+            <!-- ============ 工具栏 ============ -->
             <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                <Grid Margin="10,8">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                        <Button Content="选择并挂载 VHD" Command="{Binding MountCommand}"/>
-                        <Button Content="卸载 VHD" Command="{Binding UnmountCommand}" Margin="8,0,0,0"
-                                Background="{DynamicResource FgMutedBrush}"/>
-                    </StackPanel>
-                    <TextBlock x:Name="Breadcrumb"
-                               Foreground="{DynamicResource FgMutedBrush}"
-                               VerticalAlignment="Center" HorizontalAlignment="Right"
-                               Text="未挂载"/>
-                </Grid>
+                <StackPanel Orientation="Horizontal" Margin="10,8">
+                    <Button Content="选择并挂载 VHD / VMDK" Command="{Binding MountCommand}"/>
+                    <Button Content="卸载" Command="{Binding UnmountCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"/>
+                    <Button Content="↑ 上级" Command="{Binding GoUpCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            ToolTip="返回上一级目录"/>
+                    <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"/>
+                </StackPanel>
             </Border>
 
-            <!-- 主区域 -->
-            <Grid Grid.Row="2">
+            <!-- ============ 路径面包屑 ============ -->
+            <Border Grid.Row="2" Background="{DynamicResource PanelBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                    Padding="10,5">
+                <ItemsControl ItemsSource="{Binding Breadcrumbs}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:BreadcrumbItem}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Click="Breadcrumb_Click"
+                                        Tag="{Binding Path}"
+                                        Content="{Binding Display}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource CrumbButtonStyle}">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <TextBlock>
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CrumbSeparatorStyle}">
+                                            <Setter Property="Text" Value="›"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- ============ 主区域：左树 + 右表 ============ -->
+            <Grid Grid.Row="3">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="250"/>
+                    <ColumnDefinition Width="260"/>
                     <ColumnDefinition Width="1"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- 左侧目录树 -->
                 <TreeView Grid.Column="0" Background="Transparent" BorderThickness="0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           ItemsSource="{Binding Roots}"
                           SelectedItemChanged="TreeView_SelectedItemChanged">
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="TreeViewItem">
+                            <!-- 双向绑定：展开/选中状态回写模型 -->
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
                             <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                         </Style>
                     </TreeView.ItemContainerStyle>
                     <TreeView.ItemTemplate>
                         <HierarchicalDataTemplate DataType="{x:Type models:FolderNode}"
                                                   ItemsSource="{Binding Children}">
                             <StackPanel Orientation="Horizontal" Margin="2">
-                                <TextBlock Text="📁" Margin="0,0,4,0"/>
-                                <TextBlock Text="{Binding Name}"/>
+                                <Image Source="{Binding IconSource}" Style="{StaticResource IconImageStyle}"
+                                       Margin="0,0,5,0"/>
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </HierarchicalDataTemplate>
                     </TreeView.ItemTemplate>
@@ -93,43 +196,160 @@
                 <Rectangle Grid.Column="1" Fill="{DynamicResource BorderBrush}"/>
 
                 <!-- 右侧文件列表 -->
-                <ListView Grid.Column="2" x:Name="FileList"
-                          Background="Transparent" BorderThickness="0"
+                <DataGrid Grid.Column="2" x:Name="FileGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserResizeRows="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="None"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          SelectionMode="Extended"
+                          SelectionUnit="FullRow"
                           ItemsSource="{Binding Files}"
                           SelectedItem="{Binding SelectedFile}"
-                          MouseDoubleClick="FileList_MouseDoubleClick"
-                          KeyDown="FileList_KeyDown">
-                    <ListView.Resources>
-                        <Style TargetType="GridViewColumnHeader">
-                            <EventSetter Event="Click" Handler="GridViewColumnHeader_Click"/>
+                          MouseDoubleClick="FileGrid_MouseDoubleClick"
+                          SelectionChanged="FileGrid_SelectionChanged"
+                          PreviewMouseRightButtonDown="FileGrid_PreviewMouseRightButtonDown"
+                          PreviewKeyDown="FileGrid_PreviewKeyDown">
+                    <DataGrid.Resources>
+                        <!-- 单元格：去掉默认焦点虚线框，选中时同步高亮背景 -->
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridCell">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
                         </Style>
-                    </ListView.Resources>
-                    <ListView.View>
-                        <GridView AllowsColumnReorder="True">
-                            <GridViewColumn Header="图标" Width="50"
-                                DisplayMemberBinding="{Binding Icon}"/>
-                            <GridViewColumn Header="文件名" Width="320"
-                                DisplayMemberBinding="{Binding Name}"/>
-                            <GridViewColumn Header="大小" Width="110"
-                                DisplayMemberBinding="{Binding SizeText}"/>
-                            <GridViewColumn Header="修改时间" Width="180"
-                                DisplayMemberBinding="{Binding ModifiedText}"/>
-                        </GridView>
-                    </ListView.View>
-                    <ListView.ContextMenu>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Style.Triggers>
+                                <!-- 选中行：暗色 #334F8CFF / 亮色 #E5E7EB（主题里定义） -->
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Foreground" Value="{DynamicResource FgMutedBrush}"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                            <Setter Property="Padding" Value="6,5"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                        </Style>
+                        <Style TargetType="DataGridColumn">
+                            <Setter Property="MinWidth" Value="40"/>
+                        </Style>
+                    </DataGrid.Resources>
+
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="图标" Width="42">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid Width="18" Height="18">
+                                        <!-- ".." 返回上级用上箭头图标 -->
+                                        <TextBlock Text="⬆" FontSize="13" VerticalAlignment="Center"
+                                                   HorizontalAlignment="Center"
+                                                   Visibility="Collapsed">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsParentEntry}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Image Source="{Binding IconSource}">
+                                            <Image.Style>
+                                                <Style TargetType="Image" BasedOn="{StaticResource IconImageStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsParentEntry}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Image.Style>
+                                        </Image>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTextColumn Header="文件名" Width="2*" Binding="{Binding Name}"/>
+
+                        <DataGridTextColumn Header="大小" Width="110" Binding="{Binding SizeText}"/>
+
+                        <DataGridTextColumn Header="修改时间" Width="160" Binding="{Binding ModifiedText}"/>
+
+                        <DataGridTextColumn Header="创建时间" Width="160" Binding="{Binding CreatedText}"/>
+                    </DataGrid.Columns>
+
+                    <DataGrid.ContextMenu>
                         <ContextMenu>
+                            <MenuItem Header="打开" Click="OpenContext_Click"/>
+                            <MenuItem Header="提取文件到本地" Click="ExtractContext_Click"/>
+                            <MenuItem Header="属性" Click="PropertiesContext_Click"/>
+                            <Separator/>
                             <MenuItem Header="刷新目录" Command="{Binding RefreshCommand}"/>
-                            <MenuItem Header="提取到本地" Command="{Binding ExtractCommand}"/>
+                            <MenuItem Header="返回上级" Command="{Binding GoUpCommand}"/>
                         </ContextMenu>
-                    </ListView.ContextMenu>
-                </ListView>
+                    </DataGrid.ContextMenu>
+                </DataGrid>
             </Grid>
 
-            <!-- 状态栏 -->
-            <Border Grid.Row="3" Background="{DynamicResource PanelBrush}"
+            <!-- ============ 状态栏 ============ -->
+            <Border Grid.Row="4" Background="{DynamicResource PanelBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,10,10">
-                <TextBlock Text="{Binding Status}" Foreground="{DynamicResource FgMutedBrush}"
-                           VerticalAlignment="Center" Margin="12,0" FontSize="11"/>
+                <Grid Margin="12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="{Binding Status}"
+                               Foreground="{DynamicResource FgMutedBrush}"
+                               VerticalAlignment="Center" FontSize="11"
+                               TextTrimming="CharacterEllipsis"/>
+
+                    <TextBlock Grid.Column="1" Text="{Binding SelectionSummary}"
+                               Foreground="{DynamicResource FgMutedBrush}"
+                               VerticalAlignment="Center" FontSize="11" Margin="0,0,16,0"/>
+
+                    <TextBlock Grid.Column="2" Text="{Binding CurrentPathText}"
+                               Foreground="{DynamicResource FgMutedBrush}"
+                               VerticalAlignment="Center" FontSize="11" MaxWidth="360"
+                               TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentPathText}"/>
+                </Grid>
             </Border>
         </Grid>
     </Border>

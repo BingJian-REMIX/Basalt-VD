@@ -23,10 +23,13 @@ public sealed class MainViewModel : ViewModelBase
     // 同理用 RangeObservableCollection：LoadDirectory 整体重置列表，只发一次通知，UI 立即刷新且不卡顿。
     public RangeObservableCollection<FileItem> Files { get; } = new();
 
+    /// <summary>顶部路径面包屑（从镜像根到当前目录）。</summary>
+    public RangeObservableCollection<BreadcrumbItem> Breadcrumbs { get; } = new();
+
     public string Status
     {
         get => _status;
-        private set => Set(ref _status, value);
+        set => Set(ref _status, value);
     }
 
     public FolderNode? SelectedFolder
@@ -39,7 +42,6 @@ public sealed class MainViewModel : ViewModelBase
                 // 兜底：确保子目录已加载（某些情况下 TreeViewItem 不会把展开状态写回绑定源）
                 value.LoadChildren();
                 LoadDirectory(value.FullPath);
-                CurrentPath = string.IsNullOrEmpty(value.FullPath) ? value.Name : value.FullPath;
             }
         }
     }
@@ -58,14 +60,34 @@ public sealed class MainViewModel : ViewModelBase
         set
         {
             if (Set(ref _selectedFile, value))
+            {
+                UpdateSelectionSummary();
                 CommandManager.InvalidateRequerySuggested();
+            }
         }
     }
+
+    /// <summary>状态栏右侧：选中项统计（文件数 / 文件夹数）。</summary>
+    public string SelectionSummary
+    {
+        get => _selectionSummary;
+        private set => Set(ref _selectionSummary, value);
+    }
+    private string _selectionSummary = "";
+
+    /// <summary>状态栏：当前路径。</summary>
+    public string CurrentPathText
+    {
+        get => _currentPathText;
+        private set => Set(ref _currentPathText, value);
+    }
+    private string _currentPathText = "未挂载";
 
     public RelayCommand MountCommand { get; }
     public RelayCommand UnmountCommand { get; }
     public RelayCommand RefreshCommand { get; }
     public RelayCommand ExtractCommand { get; }
+    public RelayCommand GoUpCommand { get; }
 
     public MainViewModel()
     {
@@ -74,6 +96,7 @@ public sealed class MainViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(_ => { if (_selectedFolder != null) LoadDirectory(_selectedFolder.FullPath); },
             _ => _selectedFolder != null);
         ExtractCommand = new RelayCommand(_ => Extract(), _ => _selectedFile != null);
+        GoUpCommand = new RelayCommand(_ => GoUp(), _ => CanGoUp());
     }
 
     private void Mount()
@@ -101,11 +124,13 @@ public sealed class MainViewModel : ViewModelBase
             FolderNode.ChildLoader = p => disk.GetDirectories(p);
             Roots.Clear();
             Files.Reset(Array.Empty<FileItem>());
+            Breadcrumbs.Reset(Array.Empty<BreadcrumbItem>());
 
             var root = new FolderNode
             {
                 Name = disk.DriveLetter is char letter ? $"{letter}:\\" : $"{disk.DisplayName}（内存解析）",
-                FullPath = disk.DriveLetter is char l ? $"{l}:\\" : ""
+                FullPath = disk.DriveLetter is char l ? $"{l}:\\" : "",
+                IconSource = IconProvider.FolderIcon
             };
             // 先加载子节点再入树：根节点下挂的是分区列表（VMDK）或盘符根目录（VHD）
             root.LoadChildren();
@@ -115,8 +140,8 @@ public sealed class MainViewModel : ViewModelBase
 
             CommandManager.InvalidateRequerySuggested();
             Status = disk.DriveLetter is char lt
-                ? $"已挂载 {path} → {lt}:" + (disk is VhdDiskService { MountedReadOnly: true } ? "（只读）" : "")
-                : $"已解析 {path}（纯内存模式，无盘符）";
+                ? $"已挂载 → {lt}:" + (disk is VhdDiskService { MountedReadOnly: true } ? "（只读）" : "")
+                : "已解析（内存模式，无盘符）";
             // 若存在不可读分区（如 ext4 / Linux），追加说明，让用户知道为什么某些分区列不出文件
             if (disk is VmdkDiskService vmdk && !string.IsNullOrEmpty(vmdk.UnsupportedNote))
                 Status += "  ⚠ " + vmdk.UnsupportedNote;
@@ -140,8 +165,12 @@ public sealed class MainViewModel : ViewModelBase
             _disk = null;
             FolderNode.ChildLoader = null;
             Roots.Clear();
-            Files.Clear();
+            Files.Reset(Array.Empty<FileItem>());
+            Breadcrumbs.Reset(Array.Empty<BreadcrumbItem>());
             SelectedFolder = null;
+            CurrentPath = "未挂载";
+            CurrentPathText = "未挂载";
+            SelectionSummary = "";
             Status = "已卸载。";
             CommandManager.InvalidateRequerySuggested();
         }
@@ -169,6 +198,21 @@ public sealed class MainViewModel : ViewModelBase
         var items = new List<FileItem>();
         try
         {
+            // 顶部插入 ".." 返回上级（已在最顶层则不显示）
+            string? parent = _disk.GetParentPath(path);
+            if (parent != null)
+            {
+                items.Add(new FileItem
+                {
+                    Name = "..",
+                    FullPath = parent,
+                    SizeText = "",
+                    IconSource = IconProvider.FolderIcon,
+                    IsDirectory = true,
+                    IsParentEntry = true
+                });
+            }
+
             foreach (var dir in _disk.GetDirectories(path))
             {
                 items.Add(new FileItem
@@ -176,7 +220,8 @@ public sealed class MainViewModel : ViewModelBase
                     Name = dir.Name,
                     FullPath = dir.FullPath,
                     SizeText = "<目录>",
-                    Icon = "📁"
+                    IconSource = dir.IconSource ?? IconProvider.FolderIcon,
+                    IsDirectory = true
                 });
             }
             items.AddRange(_disk.GetFiles(path));
@@ -187,20 +232,110 @@ public sealed class MainViewModel : ViewModelBase
         }
         // 一次性整体替换 → 只触发一次 CollectionChanged，右侧列表立即刷新。
         Files.Reset(items);
+
+        UpdateBreadcrumb(path);
+        UpdateSelectionSummary();
+        CommandManager.InvalidateRequerySuggested();
     }
 
-    /// <summary>供右侧文件列表双击目录时调用：进入该目录并刷新列表与面包屑。</summary>
-    public void OpenFolder(string path)
+    /// <summary>重建顶部面包屑。</summary>
+    private void UpdateBreadcrumb(string path)
     {
+        if (_disk == null)
+        {
+            Breadcrumbs.Reset(Array.Empty<BreadcrumbItem>());
+            CurrentPathText = "未挂载";
+            return;
+        }
+
+        var crumbs = _disk.BuildBreadcrumb(path);
+        Breadcrumbs.Reset(crumbs);
+
+        // 状态栏显示引擎原始路径（与面包屑的友好名互补，不重复）：
+        // VMDK 为 "0\EFI\Boot" 伪路径，VHD 为 "Z:\Users" 真实路径
+        CurrentPathText = string.IsNullOrEmpty(path) ? crumbs.FirstOrDefault()?.Display ?? "未挂载" : path;
+    }
+
+    /// <summary>面包屑跳转：点击某一级 → 跳到该层级。</summary>
+    public void NavigateTo(string path)
+    {
+        if (_disk == null) return;
         LoadDirectory(path);
+    }
+
+    /// <summary>双击列表项：目录 → 进入；文件 → 用系统默认程序打开。</summary>
+    public void OpenItem(FileItem? item)
+    {
+        if (item == null || _disk == null) return;
+
+        if (item.IsDirectory)
+        {
+            LoadDirectory(item.FullPath);
+            return;
+        }
+
+        try
+        {
+            _disk.OpenWithDefaultApp(item.FullPath);
+            Status = $"已打开 {item.Name}";
+        }
+        catch (Exception ex)
+        {
+            // 未知格式文件往往没有关联程序 —— 此时直接弹属性窗口更有用
+            Status = $"无法用默认程序打开（{ex.Message}）";
+            if (!App.Headless)
+            {
+                var meta = GetMetadata(item);
+                if (meta != null)
+                    new PropertiesWindow(meta, item.IconSource) { Owner = Application.Current.MainWindow }.ShowDialog();
+            }
+        }
+    }
+
+    /// <summary>返回上级目录。</summary>
+    private void GoUp()
+    {
+        if (_disk == null) return;
+        string? parent = _disk.GetParentPath(CurrentPath);
+        if (parent == null) return;
+        LoadDirectory(parent);
+    }
+
+    private bool CanGoUp()
+        => _disk != null && _disk.GetParentPath(CurrentPath) != null;
+
+    /// <summary>读取选中项的完整元数据（属性窗口用）。</summary>
+    public FileMetadata? GetMetadata(FileItem? item)
+    {
+        if (item == null || _disk == null) return null;
+        if (item.IsParentEntry) return null;
+        return _disk.GetMetadata(item.FullPath);
+    }
+
+    /// <summary>状态栏：更新选中项统计。</summary>
+    public void UpdateSelectionSummary(IEnumerable<FileItem>? selected = null)
+    {
+        var items = selected?.ToList()
+                    ?? (SelectedFile != null ? new List<FileItem> { SelectedFile } : new List<FileItem>());
+        int files = items.Count(i => !i.IsDirectory);
+        int dirs = items.Count(i => i.IsDirectory);
+        SelectionSummary = items.Count == 0
+            ? "未选中任何项"
+            : $"已选 {files} 个文件、{dirs} 个文件夹";
     }
 
     private void Extract()
     {
         if (_selectedFile == null || _disk == null) return;
+        if (_selectedFile.IsDirectory)
+        {
+            Status = "暂不支持提取文件夹，请先进入该目录再选择文件。";
+            return;
+        }
+
         var dialog = new SaveFileDialog
         {
-            Title = "提取到本地",
+            Title = "提取文件到本地",
             FileName = _selectedFile.Name,
             Filter = "所有文件 (*.*)|*.*"
         };
@@ -214,7 +349,8 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             Status = $"提取失败：{ex.Message}";
-            MessageBox.Show(ex.Message, "Basalt — 提取失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!App.Headless)
+                MessageBox.Show(ex.Message, "Basalt — 提取失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

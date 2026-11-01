@@ -7,6 +7,7 @@
     <Color x:Key="FgMutedColor">#6B6B76</Color>
     <Color x:Key="AccentColor">#2F6FED</Color>
     <Color x:Key="HoverColor">#E8E8EE</Color>
+    <Color x:Key="SelectedColor">#E5E7EB</Color>
 
     <SolidColorBrush x:Key="BgBrush" Color="{DynamicResource BgColor}"/>
     <SolidColorBrush x:Key="PanelBrush" Color="{DynamicResource PanelColor}"/>
@@ -15,4 +16,5 @@
     <SolidColorBrush x:Key="FgMutedBrush" Color="{DynamicResource FgMutedColor}"/>
     <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}"/>
     <SolidColorBrush x:Key="HoverBrush" Color="{DynamicResource HoverColor}"/>
+    <SolidColorBrush x:Key="SelectedBrush" Color="{DynamicResource SelectedColor}"/>
 </ResourceDictionary>

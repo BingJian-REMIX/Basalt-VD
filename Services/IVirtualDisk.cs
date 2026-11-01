@@ -23,4 +23,31 @@ public interface IVirtualDisk : IDisposable
 
     /// <summary>把镜像内的文件提取到本地真实路径。</summary>
     void ExtractFile(string path, string destPath);
+
+    /// <summary>
+    /// 返回上级目录路径；已在最顶层时返回 null（列表不显示 ".."）。
+    /// VHD: 真实父目录；VMDK: 伪路径的上一级（"0\A\B" → "0\A"，"0" → null）。
+    /// </summary>
+    string? GetParentPath(string path);
+
+    /// <summary>读取单个文件/目录的完整元数据（属性窗口用）。</summary>
+    FileMetadata GetMetadata(string path);
+
+    /// <summary>
+    /// 取该路径对应的原生 Windows 图标；取不到返回 null。
+    /// VHD 用真实路径取；VMDK 按扩展名取关联图标。
+    /// </summary>
+    System.Windows.Media.ImageSource? GetIcon(string path, bool isDirectory);
+
+    /// <summary>
+    /// 打开文件：用系统默认程序。
+    /// VHD：文件在真实磁盘，可直接交给 shell。
+    /// VMDK：文件仅存在于镜像内，先导出到临时文件再交给 shell。
+    /// </summary>
+    void OpenWithDefaultApp(string path);
+
+    /// <summary>
+    /// 构造面包屑层级链（从根到当前）。每项含显示名与可跳转路径。
+    /// </summary>
+    List<ViewModels.BreadcrumbItem> BuildBreadcrumb(string path);
 }

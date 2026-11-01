@@ -1,7 +1,6 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using Basalt.Models;
@@ -13,6 +12,9 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
 
+    /// <summary>最近一次右键命中的行（右键目标未必是当前选中行）。</summary>
+    private FileItem? _contextItem;
+
     public MainWindow()
     {
         DataContext = _vm;
@@ -23,7 +25,9 @@ public partial class MainWindow : Window
     private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.CurrentPath))
-            Breadcrumb.Text = _vm.CurrentPath;
+            Title = string.IsNullOrEmpty(_vm.CurrentPath) || _vm.CurrentPath == "未挂载"
+                ? "Basalt — 虚拟磁盘管理器"
+                : $"Basalt — {_vm.CurrentPath}";
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -60,74 +64,102 @@ public partial class MainWindow : Window
         ((Button)sender).Content = app.IsDarkTheme ? "☀️" : "🌙";
     }
 
+    // ==================== 左侧目录树 ====================
+
     private void TreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is FolderNode node)
-            _vm.SelectedFolder = node;
-    }
-
-    // 右侧列表双击目录项 → 进入该目录（与左侧树导航等价）
-    private void FileList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (ResolveItemUnderMouse(e.OriginalSource) is { SizeText: "<目录>" } item)
-            _vm.OpenFolder(item.FullPath);
-    }
-
-    // 键盘 Enter 也可进入目录
-    private void FileList_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter && _vm.SelectedFile is { SizeText: "<目录>" } item)
         {
-            _vm.OpenFolder(item.FullPath);
-            e.Handled = true;
+            node.IsExpanded = true; // 点击节点即展开
+            _vm.SelectedFolder = node;
         }
     }
 
-    /// <summary>从鼠标位置的视觉树回溯到 ListViewItem，取出其绑定的数据项。</summary>
+    // ==================== 右侧文件列表 ====================
+
+    /// <summary>双击：目录 → 进入；文件 → 用系统默认程序打开。</summary>
+    private void FileGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        var item = ResolveItemUnderMouse(e.OriginalSource) ?? _vm.SelectedFile;
+        if (item == null) return;
+        _vm.OpenItem(item);
+    }
+
+    private void FileGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = e.AddedItems.OfType<FileItem>().ToList();
+        _vm.UpdateSelectionSummary(selected);
+    }
+
+    /// <summary>Enter 键：目录进入；文件打开。</summary>
+    private void FileGrid_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || _vm.SelectedFile == null) return;
+        _vm.OpenItem(_vm.SelectedFile);
+        e.Handled = true;
+    }
+
+    /// <summary>从鼠标位置的视觉树回溯到 DataGridRow，取出其绑定的数据项。</summary>
     private static FileItem? ResolveItemUnderMouse(object? originalSource)
     {
         if (originalSource is not DependencyObject obj) return null;
-        while (obj != null && obj is not ListViewItem)
+        while (obj != null && obj is not DataGridRow)
             obj = VisualTreeHelper.GetParent(obj);
-        return (obj as ListViewItem)?.DataContext as FileItem;
+        return (obj as DataGridRow)?.Item as FileItem;
     }
 
-    // 点击表头排序
-    private GridViewColumnHeader? _lastHeader;
-    private ListSortDirection _lastDirection = ListSortDirection.Ascending;
+    // ==================== 面包屑 ====================
 
-    private void GridViewColumnHeader_Click(object sender, RoutedEventArgs e)
+    private void Breadcrumb_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not GridViewColumnHeader header || header.Role == GridViewColumnHeaderRole.Padding)
-            return;
+        if (sender is Button { Tag: string path })
+            _vm.NavigateTo(path);
+    }
 
-        var column = header.Column?.Header as string;
-        string? property = column switch
+    // ==================== 右键菜单 ====================
+
+    private void OpenContext_Click(object sender, RoutedEventArgs e)
+    {
+        var item = ContextItem();
+        if (item != null) _vm.OpenItem(item);
+    }
+
+    private void ExtractContext_Click(object sender, RoutedEventArgs e)
+    {
+        var item = ContextItem();
+        if (item == null) return;
+        if (item.IsDirectory)
         {
-            "文件名" => nameof(FileItem.Name),
-            "大小" => null, // SizeText 是格式化字符串，直接按字符串排即可
-            "修改时间" => nameof(FileItem.ModifiedText),
-            _ => null
-        };
+            _vm.Status = "暂不支持提取文件夹，请先进入该目录再选择文件。";
+            return;
+        }
+        _vm.SelectedFile = item;
+        _vm.ExtractCommand.Execute(null);
+    }
 
-        var view = (ListCollectionView)CollectionViewSource.GetDefaultView(_vm.Files);
-        view.SortDescriptions.Clear();
+    private void PropertiesContext_Click(object sender, RoutedEventArgs e)
+    {
+        var item = ContextItem();
+        if (item != null) ShowProperties(item);
+    }
 
-        var direction = header == _lastHeader && _lastDirection == ListSortDirection.Ascending
-            ? ListSortDirection.Descending
-            : ListSortDirection.Ascending;
+    /// <summary>取右键点击的那一行（优先于当前选中行）。</summary>
+    private FileItem? ContextItem() => _contextItem ?? _vm.SelectedFile;
 
-        if (property != null)
-            view.SortDescriptions.Add(new SortDescription(property, direction));
-        else if (column == "大小")
-            view.CustomSort = direction == ListSortDirection.Ascending
-                ? Comparer<FileItem>.Create((a, b) => a.SizeText.CompareTo(b.SizeText))
-                : Comparer<FileItem>.Create((a, b) => b.SizeText.CompareTo(a.SizeText));
-        else
-            view.CustomSort = null;
+    /// <summary>右键时记录被右击的行 —— 右键目标未必是选中行。</summary>
+    private void FileGrid_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _contextItem = ResolveItemUnderMouse(e.OriginalSource);
+    }
 
-        if (property != null) view.CustomSort = null;
-        _lastHeader = header;
-        _lastDirection = direction;
+    // ==================== 属性窗口 ====================
+
+    private void ShowProperties(FileItem item)
+    {
+        var meta = _vm.GetMetadata(item);
+        if (meta == null) return;
+
+        var win = new PropertiesWindow(meta, item.IconSource) { Owner = this };
+        win.ShowDialog();
     }
 }

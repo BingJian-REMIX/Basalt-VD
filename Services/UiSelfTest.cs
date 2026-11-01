@@ -87,11 +87,12 @@ public static class UiSelfTest
             if (firstDir != null)
             {
                 int before2 = filesNotify;
-                vm.OpenFolder(firstDir.FullPath);
+                vm.OpenItem(firstDir);
                 W($"   [双击进入] '{firstDir.Name}'  → 右侧列表 {vm.Files.Count} 项（通知 {filesNotify - before2} 次），面包屑='{vm.CurrentPath}'");
                 var sample = vm.Files.Take(6).Select(f => f.Name).ToList();
                 if (sample.Count > 0)
                     W($"      内容: {string.Join(", ", sample)}");
+                W($"   面包屑层级数: {vm.Breadcrumbs.Count}  路径: {vm.CurrentPathText}");
             }
             else
             {

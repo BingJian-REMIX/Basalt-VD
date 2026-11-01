@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using System.IO;
+using Basalt.Common;
 using Basalt.Models;
+using Basalt.ViewModels;
 using DiscUtils;
 using DiscUtils.Partitions;
 using DiscUtils.Streams;
@@ -135,7 +138,8 @@ public sealed class VmdkDiskService : IVirtualDisk
                 list.Add(new FolderNode
                 {
                     Name = label,
-                    FullPath = i.ToString()
+                    FullPath = i.ToString(),
+                    IconSource = IconProvider.FolderIcon
                 });
             }
             return list;
@@ -149,7 +153,8 @@ public sealed class VmdkDiskService : IVirtualDisk
             list.Add(new FolderNode
             {
                 Name = Path.GetFileName(dir),
-                FullPath = $"{idx}{dir}" // 保持 "0\DIR\SUB" 伪路径
+                FullPath = $"{idx}{dir}", // 保持 "0\DIR\SUB" 伪路径
+                IconSource = IconProvider.FolderIcon
             });
         }
         list.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
@@ -165,16 +170,27 @@ public sealed class VmdkDiskService : IVirtualDisk
 
         foreach (var file in fs.GetFiles(inner))
         {
+            string ext = Path.GetExtension(file);
             list.Add(new FileItem
             {
                 Name = Path.GetFileName(file),
                 FullPath = $"{idx}{file}",
                 SizeText = FileItemFormatter.FormatSize(fs.GetFileLength(file)),
-                ModifiedText = fs.GetLastWriteTimeUtc(file).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                Icon = FileItemFormatter.GetIcon(Path.GetExtension(file))
+                ModifiedText = FileItemFormatter.FormatTime(fs.GetLastWriteTimeUtc(file).ToLocalTime()),
+                CreatedText = FileItemFormatter.FormatTime(fs.GetCreationTimeUtc(file).ToLocalTime()),
+                AttributesText = SafeAttributes(fs, file),
+                // VMDK 内文件无真实路径，只能按扩展名取系统关联图标
+                IconSource = IconProvider.FromExtension(ext),
+                IsDirectory = false
             });
         }
         return list;
+    }
+
+    private static string SafeAttributes(DiscFileSystem fs, string path)
+    {
+        try { return fs.GetAttributes(path).ToString(); }
+        catch { return ""; }
     }
 
     public void ExtractFile(string path, string destPath)
@@ -185,6 +201,122 @@ public sealed class VmdkDiskService : IVirtualDisk
         using var src = fs.OpenFile(inner, FileMode.Open, FileAccess.Read);
         using var dst = File.Create(destPath);
         src.CopyTo(dst);
+    }
+
+    public string? GetParentPath(string path)
+    {
+        // 镜像根（空串）没有上级
+        if (string.IsNullOrEmpty(path)) return null;
+        int sep = path.LastIndexOf('\\');
+        // 分区根（"0"）的上一级是镜像根（空串）—— 回到镜像根可以重新选分区
+        if (sep < 0) return "";
+        return path[..sep];
+    }
+
+    public FileMetadata GetMetadata(string path)
+    {
+        if (!TryGetFileSystem(path, out var fs, out int idx, out string inner))
+            return new FileMetadata { Name = Path.GetFileName(path), FullPath = path };
+
+        try
+        {
+            if (fs.DirectoryExists(inner))
+            {
+                return new FileMetadata
+                {
+                    Name = Path.GetFileName(inner.TrimEnd('\\')),
+                    FullPath = $"{idx}{inner}",
+                    CreatedText = FileItemFormatter.FormatTime(fs.GetCreationTimeUtc(inner).ToLocalTime()),
+                    ModifiedText = FileItemFormatter.FormatTime(fs.GetLastWriteTimeUtc(inner).ToLocalTime()),
+                    AccessedText = FileItemFormatter.FormatTime(fs.GetLastAccessTimeUtc(inner).ToLocalTime()),
+                    AttributesText = SafeAttributes(fs, inner),
+                    IsDirectory = true
+                };
+            }
+
+            long length = fs.GetFileLength(inner);
+            return new FileMetadata
+            {
+                Name = Path.GetFileName(inner),
+                FullPath = $"{idx}{inner}",
+                SizeText = FileItemFormatter.FormatSize(length),
+                Size = length,
+                CreatedText = FileItemFormatter.FormatTime(fs.GetCreationTimeUtc(inner).ToLocalTime()),
+                ModifiedText = FileItemFormatter.FormatTime(fs.GetLastWriteTimeUtc(inner).ToLocalTime()),
+                AccessedText = FileItemFormatter.FormatTime(fs.GetLastAccessTimeUtc(inner).ToLocalTime()),
+                AttributesText = SafeAttributes(fs, inner),
+                IsDirectory = false
+            };
+        }
+        catch (Exception ex)
+        {
+            return new FileMetadata { Name = Path.GetFileName(inner), FullPath = $"{idx}{inner}", AttributesText = $"读取失败：{ex.Message}" };
+        }
+    }
+
+    public System.Windows.Media.ImageSource? GetIcon(string path, bool isDirectory)
+    {
+        if (isDirectory) return IconProvider.FolderIcon;
+        if (!TryGetFileSystem(path, out var fs, out _, out string inner)) return null;
+        return IconProvider.FromExtension(Path.GetExtension(inner));
+    }
+
+    public void OpenWithDefaultApp(string path)
+    {
+        if (!TryGetFileSystem(path, out var fs, out _, out string inner))
+            throw new FileNotFoundException("找不到 VMDK 内的文件。", path);
+
+        // VMDK 内文件不存在于真实磁盘，无法直接交给 shell —— 先导出到临时文件再打开。
+        string ext = Path.GetExtension(inner);
+        string temp = Path.Combine(Path.GetTempPath(), $"basalt_open_{Guid.NewGuid():N}{ext}");
+        try
+        {
+            using (var src = fs.OpenFile(inner, FileMode.Open, FileAccess.Read))
+            using (var dst = File.Create(temp))
+            {
+                src.CopyTo(dst);
+            }
+            Process.Start(new ProcessStartInfo(temp) { UseShellExecute = true });
+        }
+        catch
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            throw;
+        }
+    }
+
+    public List<BreadcrumbItem> BuildBreadcrumb(string path)
+    {
+        var list = new List<BreadcrumbItem>();
+        list.Add(new BreadcrumbItem { Display = DisplayName, Path = "" });
+
+        if (string.IsNullOrEmpty(path)) return list;
+
+        // "0\Users\Admin" → 镜像 > 分区 N > Users > Admin
+        int sep = path.IndexOf('\\');
+        string indexText = sep < 0 ? path : path[..sep];
+        if (!int.TryParse(indexText, out int idx) || idx < 0 || idx >= _fileSystems.Count)
+            return list;
+
+        string label = _fileSystems[idx] != null
+            ? $"分区 {idx + 1}（{_fileSystems[idx]!.FriendlyName}）"
+            : $"分区 {idx + 1}（{_partitionTypes[idx]}）";
+        list.Add(new BreadcrumbItem { Display = label, Path = indexText });
+
+        if (sep >= 0)
+        {
+            string rest = path[(sep + 1)..];
+            string acc = indexText;
+            foreach (var seg in rest.Split('\\', StringSplitOptions.RemoveEmptyEntries))
+            {
+                acc += "\\" + seg;
+                list.Add(new BreadcrumbItem { Display = seg, Path = acc });
+            }
+        }
+
+        if (list.Count > 0)
+            list[^1] = new BreadcrumbItem { Display = list[^1].Display, Path = list[^1].Path, IsCurrent = true, IsLast = true };
+        return list;
     }
 
     public void Dispose()

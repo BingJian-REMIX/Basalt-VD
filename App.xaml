@@ -40,6 +40,12 @@
                 <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
                 <Setter Property="Padding" Value="8,4"/>
             </Style>
+
+            <!-- 次要按钮：浅底 + 主题前景色（默认 Button 是强调色底 + 白字） -->
+            <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

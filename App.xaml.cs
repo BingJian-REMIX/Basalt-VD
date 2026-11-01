@@ -17,7 +17,7 @@ public partial class App : Application
     {
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
         var args = e.Args;
-        Headless = args.Any(a => a is "--uitest" or "--rendertest" or "--mounttest" or "--diag" or "--selftest");
+        Headless = args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--mounttest" or "--diag" or "--selftest");
         int i = Array.IndexOf(args, "--diag");
         int st = Array.IndexOf(args, "--selftest");
         if (st >= 0)
@@ -59,8 +59,18 @@ public partial class App : Application
         if (wt >= 0 && wt + 1 < args.Length)
         {
             // 渲染级自测：真实创建窗口并遍历视觉树，确认节点已画出（无需 resize）
-            string report = Services.WpfRenderTest.Run(args[wt + 1]);
-            WriteReport(report, "basalt_rendertest.txt");
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.WpfRenderTest.Run(args[wt + 1], light);
+            WriteReport(report, light ? "basalt_rendertest_light.txt" : "basalt_rendertest.txt");
+            Shutdown();
+            return;
+        }
+        int ft = Array.IndexOf(args, "--featuretest");
+        if (ft >= 0 && ft + 1 < args.Length)
+        {
+            // 功能级自测：..上级 / 面包屑 / 元数据 / 图标 / 状态栏计数 / 提取落盘
+            string report = Services.FeatureSelfTest.Run(args[ft + 1]);
+            WriteReport(report, "basalt_featuretest.txt");
             Shutdown();
             return;
         }
