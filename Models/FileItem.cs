@@ -8,6 +8,8 @@ public sealed class FileItem
     public required string Name { get; init; }
     public required string FullPath { get; init; }
     public string SizeText { get; init; } = "";
+    /// <summary>字节数（状态栏汇总用；目录与 ".." 为 0）。</summary>
+    public long Size { get; init; }
     public string ModifiedText { get; init; } = "";
     public string CreatedText { get; init; } = "";
 

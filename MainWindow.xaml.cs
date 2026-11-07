@@ -77,7 +77,7 @@ public partial class MainWindow : Window
 
     // ==================== 右侧文件列表 ====================
 
-    /// <summary>双击：目录 → 进入；文件 → 用系统默认程序打开。</summary>
+    /// <summary>双击：目录 → 进入；文件 → 内部预览分发器（容器 → 展开浏览）。</summary>
     private void FileGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         var item = ResolveItemUnderMouse(e.OriginalSource) ?? _vm.SelectedFile;
@@ -122,6 +122,21 @@ public partial class MainWindow : Window
     {
         var item = ContextItem();
         if (item != null) _vm.OpenItem(item);
+    }
+
+    /// <summary>右键"预览"：跳过容器展开，强制内部预览窗口。</summary>
+    private void PreviewContext_Click(object sender, RoutedEventArgs e)
+        => _vm.PreviewItem(ContextItem());
+
+    /// <summary>右键"导出到 Chert 工作目录"。</summary>
+    private void ExportChertContext_Click(object sender, RoutedEventArgs e)
+        => _vm.ExportToChert(ContextItem());
+
+    /// <summary>右键"生成虚拟磁盘"。</summary>
+    private void GenerateVhdxContext_Click(object sender, RoutedEventArgs e)
+    {
+        var item = ContextItem();
+        if (item != null && !item.IsDirectory) _vm.GenerateVhdx(item);
     }
 
     /// <summary>右键"展开为容器"：把选中的归档文件在 Basalt 内直接展开浏览。</summary>

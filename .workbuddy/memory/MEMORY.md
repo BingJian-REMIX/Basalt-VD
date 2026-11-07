@@ -47,3 +47,15 @@ UI：无边框窗口、左 250px TreeView 懒加载目录树、右侧 GridView�
 
 - `E:\VSstopmashanhi\win11\Windows 11 x64.vmdk`（twoGbMaxExtentSparse，26 分片）→ 5 分区，4 可读（FAT32 EFI + 3×NTFS）
 - `E:\VSstopmashanhi\Ubuntu\Ubuntu.vmdk`（6 分片）→ 2 分区，均 ext4/BIOS Boot
+- `D:\data\inside nova\WIN光盘\wepe64\WePE64_V2.2.iso`（容器回归用）
+
+## 2026-11-08 增量（详见当日日志）
+
+- `IVirtualDisk.OpenRead` 统一三引擎流：VHD=FileStream / VMDK=DiscUtils 流 / 容器=`7z e -so`→MemoryStream。内部预览**绝不落地、不偷懒 Process.Start**。
+- `PreviewDispatcher` + `TextViewerWindow` / `ImageViewerWindow` / `HexViewerWindow`；仅 `.pdf/.docx/...` 白名单走外部；`TempFileRegistry` 在 `App.OnExit` 清理临时文件（**不要登记 VHD 真实路径**）。
+- `ArchiveToVhdxService`：7z x → `DiscUtils.Vhdx.Disk.InitializeDynamic` → MBR → `NtfsFileSystem.Format`。新增包 `LTRData.DiscUtils.Vhdx 1.0.47`。VHDX 是块设备镜像，不能"流式封装"文件。
+- `ChertIntegration`：Chert GUI 优先（源码 `D:\data\work\Claw\MCLCS-WPF-clean`）；工作目录读 `%APPDATA%\Chert\gameroot.txt`，回落 `%APPDATA%\.minecraft`；`chert://` 仅在 Scheme 已注册时用（下一版 Chert）。
+- `CliMount`：`basalt.exe mount <vhd> --readonly --silent --daemon [--port N]` 常驻；`basalt.exe stop` 发 loopback TCP 停止信号；状态文件 `%TEMP%\basalt_mount_state.json`。
+- 7z 列目录加 `-sccUTF-8` + 原始字节 UTF-8/GB18030 双解码；`App.OnStartup` 注册 `CodePagesEncodingProvider`。
+- 新自测：`--previewtest [路径]` / `--vhdxtest <归档>` / `--clitest` / `--previewui [--light]`。
+- **本机非管理员**：VHD 盘符分配失败（`Mount-DiskImage` 报无特权），daemon 全流程未实机验证；TCP 停止通道已由 `--clitest` 覆盖。

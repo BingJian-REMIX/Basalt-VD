@@ -63,19 +63,43 @@ public sealed class ContainerDiskService : IVirtualDisk
         psi.ArgumentList.Add("l");
         psi.ArgumentList.Add("-slt");
         psi.ArgumentList.Add("-ba");          // 不带表头，纯条目
+        psi.ArgumentList.Add("-sccUTF-8");    // 强制 7z 以 UTF-8 输出文件名，避免中文变 OEM 乱码
         psi.ArgumentList.Add(_archivePath);
 
         using var proc = Process.Start(psi);
         if (proc == null) throw new InvalidOperationException("无法启动 7-Zip。");
 
-        string stdout = proc.StandardOutput.ReadToEnd();
-        string stderr = proc.StandardError.ReadToEnd();
+        // 按原始字节读取，再按 UTF-8 → GB18030 依次解码：
+        // 老归档没有 UTF-8 标志时 7z 仍会吐 OEM/GBK 字节，直接用 StreamReader 会乱码。
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        byte[] raw;
+        using (var buffer = new MemoryStream())
+        {
+            proc.StandardOutput.BaseStream.CopyTo(buffer);
+            raw = buffer.ToArray();
+        }
+        string stderr = stderrTask.GetAwaiter().GetResult();
         proc.WaitForExit(60000);
 
         if (proc.ExitCode != 0)
             throw new InvalidDataException($"7-Zip 无法读取该归档：{stderr.Trim()}");
 
-        ParseEntries(stdout);
+        ParseEntries(DecodeListing(raw));
+    }
+
+    /// <summary>列目录输出解码：优先严格 UTF-8，失败回退 GB18030（GBK 超集）。</summary>
+    private static string DecodeListing(byte[] raw)
+    {
+        if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+            raw = raw[3..];
+        try
+        {
+            return new UTF8Encoding(false, true).GetString(raw);
+        }
+        catch (DecoderFallbackException)
+        {
+            return Encoding.GetEncoding(54936).GetString(raw);
+        }
     }
 
     private void ParseEntries(string slt)
@@ -207,6 +231,7 @@ public sealed class ContainerDiskService : IVirtualDisk
                     Name = NameOf(e.Path),
                     FullPath = e.Path,
                     SizeText = FileItemFormatter.FormatSize(e.Size),
+                    Size = e.Size,
                     ModifiedText = FileItemFormatter.FormatTime(e.Modified),
                     CreatedText = "",
                     AttributesText = e.Attributes,
@@ -322,9 +347,7 @@ public sealed class ContainerDiskService : IVirtualDisk
         if (e == null || e.IsDirectory)
             throw new FileNotFoundException("归档内找不到该文件。", path);
 
-        string dir = Path.Combine(Path.GetTempPath(), "BasaltOpen");
-        Directory.CreateDirectory(dir);
-        string temp = Path.Combine(dir, NameOf(path));
+        string temp = TempFileRegistry.NewPath(NameOf(path));
         ExtractFile(path, temp);
         Process.Start(new ProcessStartInfo(temp) { UseShellExecute = true });
     }
@@ -363,10 +386,48 @@ public sealed class ContainerDiskService : IVirtualDisk
     /// <summary>容器内的文件不在真实磁盘上 —— 先用 7z 提取到临时目录。</summary>
     public string MaterializeToTemp(string path)
     {
-        string dir = Path.Combine(Path.GetTempPath(), "BasaltOpen");
-        Directory.CreateDirectory(dir);
-        string temp = Path.Combine(dir, NameOf(path));
+        string temp = TempFileRegistry.NewPath(NameOf(path));
         ExtractFile(path, temp);
         return temp;
+    }
+
+    /// <summary>
+    /// 容器模式：7z e -so 把单个文件直接写到 stdout，读进 MemoryStream，全程不落地。
+    /// 供内部预览（文本/图片/十六进制）使用。
+    /// </summary>
+    public Stream OpenRead(string path)
+    {
+        string? sevenZip = ContainerDetector.SevenZipPath
+            ?? throw new InvalidOperationException("未找到 7-Zip（7z.exe）。");
+
+        var psi = new ProcessStartInfo(sevenZip)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        psi.ArgumentList.Add("e");
+        psi.ArgumentList.Add("-so");          // 输出到 stdout，不写磁盘
+        psi.ArgumentList.Add(_archivePath);
+        psi.ArgumentList.Add(path);
+        psi.ArgumentList.Add("-y");
+        psi.ArgumentList.Add("-bso0");        // 关闭进度/日志输出，避免混进二进制数据
+        psi.ArgumentList.Add("-bsp0");
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("无法启动 7-Zip。");
+
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        using var buffer = new MemoryStream();
+        proc.StandardOutput.BaseStream.CopyTo(buffer);
+        string stderr = stderrTask.GetAwaiter().GetResult();
+        proc.WaitForExit(120000);
+
+        if (proc.ExitCode != 0)
+            throw new InvalidDataException($"读取归档内文件失败：{(stderr.Trim().Length > 0 ? stderr.Trim() : "7-Zip 返回非零退出码")}");
+
+        var result = new MemoryStream(buffer.ToArray(), writable: false);
+        return result;
     }
 }

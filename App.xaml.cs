@@ -15,9 +15,25 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
+        // GB18030（GBK 超集）用于老归档中文名 / 无 BOM 中文文本的兜底解码，必须先注册提供器
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+        // CLI 自动化接口（供 Chert 后台调用）：进程可常驻，故必须在其它诊断分支之前处理
         var args = e.Args;
-        Headless = args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest");
+        bool cli = args.Length > 0 &&
+                   (args[0].Equals("mount", StringComparison.OrdinalIgnoreCase) ||
+                    args[0].Equals("stop", StringComparison.OrdinalIgnoreCase));
+
+        // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
+        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui");
+        if (cli)
+        {
+            int code = args[0].Equals("mount", StringComparison.OrdinalIgnoreCase)
+                ? Services.CliMount.RunMount(args)
+                : Services.CliMount.RunStop(args);
+            Shutdown(code);
+            return;
+        }
         int i = Array.IndexOf(args, "--diag");
         int st = Array.IndexOf(args, "--selftest");
         if (st >= 0)
@@ -101,7 +117,48 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        int pt = Array.IndexOf(args, "--previewtest");
+        if (pt >= 0)
+        {
+            // 预览分发 / 7z 编码 / 归档转 VHDX 全链路自测（可附带一个外部镜像路径）
+            string report = Services.PreviewSelfTest.Run(pt + 1 < args.Length ? args[pt + 1] : null);
+            WriteReport(report, "basalt_previewtest.txt");
+            Shutdown();
+            return;
+        }
+        int vt = Array.IndexOf(args, "--vhdxtest");
+        if (vt >= 0 && vt + 1 < args.Length)
+        {
+            string report = Services.PreviewSelfTest.RunVhdx(args[vt + 1]);
+            WriteReport(report, "basalt_vhdxtest.txt");
+            Shutdown();
+            return;
+        }
+        int cl = Array.IndexOf(args, "--clitest");
+        if (cl >= 0)
+        {
+            string report = Services.CliSelfTest.Run();
+            WriteReport(report, "basalt_clitest.txt");
+            Shutdown();
+            return;
+        }
+        int pu = Array.IndexOf(args, "--previewui");
+        if (pu >= 0)
+        {
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.PreviewRenderTest.Run(light);
+            WriteReport(report, light ? "basalt_previewui_light.txt" : "basalt_previewui.txt");
+            Shutdown();
+            return;
+        }
         base.OnStartup(e);
+    }
+
+    /// <summary>退出时清理外部打开兜底产生的临时文件（VMDK / 容器模式）。</summary>
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Basalt.Common.TempFileRegistry.Cleanup();
+        base.OnExit(e);
     }
 
     /// <summary>把自检报告以 UTF-8 写入临时目录（默认编码会写出乱码）。</summary>

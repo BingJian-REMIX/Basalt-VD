@@ -1,3 +1,4 @@
+using System.IO;
 using Basalt.Models;
 
 namespace Basalt.Services;
@@ -50,6 +51,13 @@ public interface IVirtualDisk : IDisposable
     /// 构造面包屑层级链（从根到当前）。每项含显示名与可跳转路径。
     /// </summary>
     List<ViewModels.BreadcrumbItem> BuildBreadcrumb(string path);
+
+    /// <summary>
+    /// 打开镜像内文件的只读流，供内部预览使用（不落地、不经过 Process.Start）。
+    /// VHD 为 FileStream；VMDK 为 DiscUtils 文件系统流；容器为 7z -so 输出的纯内存流。
+    /// 调用方负责 Dispose。
+    /// </summary>
+    Stream OpenRead(string path);
 
     /// <summary>
     /// 把镜像内的文件"实体化"到本地真实路径，返回该真实路径。

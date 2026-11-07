@@ -110,6 +110,11 @@
                             ToolTip="返回上一级目录"/>
                     <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="8,0,0,0"
                             Style="{StaticResource SecondaryButtonStyle}"/>
+                    <Button Content="生成虚拟磁盘" Command="{Binding GenerateVhdxCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            ToolTip="选中 .zip / .7z 后，7z 解压并封装为可挂载的 NTFS .vhdx"/>
+                    <Button Content="在 Chert 中启动" Command="{Binding LaunchChertCommand}" Margin="8,0,0,0"
+                            ToolTip="GUI 优先；下一版 Chert 支持 chert:// 直接唤起"/>
                 </StackPanel>
             </Border>
 
@@ -269,20 +274,21 @@
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <Grid Width="18" Height="18" Margin="6,0">
-                                        <!-- ".." 返回上级用上箭头图标 -->
-                                        <TextBlock Text="⬆" FontSize="13" VerticalAlignment="Center"
-                                                   HorizontalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsParentEntry}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                    <!-- ".." 返回上级用矢量上箭头（真实文件一律用原生 HICON） -->
+                                    <Path Width="14" Height="14" Stretch="Uniform"
+                                          Fill="{DynamicResource AccentBrush}"
+                                          Data="M 8,1 L 15,8 L 11.5,8 L 11.5,14 L 4.5,14 L 4.5,8 L 1,8 Z">
+                                        <Path.Style>
+                                            <Style TargetType="Path">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsParentEntry}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Path.Style>
+                                    </Path>
                                         <Image Source="{Binding IconSource}">
                                             <Image.Style>
                                                 <Style TargetType="Image" BasedOn="{StaticResource IconImageStyle}">
@@ -317,9 +323,13 @@
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="打开" Click="OpenContext_Click"/>
+                            <MenuItem Header="预览" Click="PreviewContext_Click"
+                                      ToolTip="强制走内部预览窗口（文本 / 图片 / 十六进制）"/>
                             <MenuItem Header="展开为容器" Click="ExpandContext_Click"
                                       ToolTip="在 Basalt 内直接浏览压缩包 / ISO / 自解压程序的内容"/>
                             <MenuItem Header="提取文件到本地" Click="ExtractContext_Click"/>
+                            <MenuItem Header="导出到 Chert 工作目录" Click="ExportChertContext_Click"/>
+                            <MenuItem Header="生成虚拟磁盘 (.vhdx)" Click="GenerateVhdxContext_Click"/>
                             <MenuItem Header="属性" Click="PropertiesContext_Click"/>
                             <Separator/>
                             <MenuItem Header="刷新目录" Command="{Binding RefreshCommand}"/>

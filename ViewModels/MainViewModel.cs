@@ -94,6 +94,8 @@ public sealed class MainViewModel : ViewModelBase
     public RelayCommand RefreshCommand { get; }
     public RelayCommand ExtractCommand { get; }
     public RelayCommand GoUpCommand { get; }
+    public RelayCommand GenerateVhdxCommand { get; }
+    public RelayCommand LaunchChertCommand { get; }
 
     public MainViewModel()
     {
@@ -103,6 +105,8 @@ public sealed class MainViewModel : ViewModelBase
             _ => _selectedFolder != null);
         ExtractCommand = new RelayCommand(_ => Extract(), _ => _selectedFile != null);
         GoUpCommand = new RelayCommand(_ => GoUp(), _ => CanGoUp());
+        GenerateVhdxCommand = new RelayCommand(_ => GenerateVhdx(), _ => CanGenerateVhdx());
+        LaunchChertCommand = new RelayCommand(_ => LaunchChert(), _ => _disk != null);
     }
 
     private void Mount()
@@ -285,7 +289,7 @@ public sealed class MainViewModel : ViewModelBase
         LoadDirectory(path);
     }
 
-    /// <summary>双击列表项：目录 → 进入；容器文件 → 展开浏览；普通文件 → 用系统默认程序打开。</summary>
+    /// <summary>双击列表项：目录 → 进入；容器文件 → 展开浏览；普通文件 → 内部预览分发器。</summary>
     public void OpenItem(FileItem? item)
     {
         if (item == null || _disk == null) return;
@@ -308,19 +312,32 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            _disk.OpenWithDefaultApp(item.FullPath);
-            Status = $"已打开 {item.Name}";
+            Status = PreviewDispatcher.Preview(_disk, item.FullPath, item.Name);
         }
         catch (Exception ex)
         {
-            // 未知格式文件往往没有关联程序 —— 此时直接弹属性窗口更有用
-            Status = $"无法用默认程序打开（{ex.Message}）";
+            // 预览失败（如损坏的图片）给出明确原因，退回属性窗口而不是偷偷调外部程序
+            Status = $"内部预览失败（{ex.Message}）";
             if (!App.Headless)
             {
                 var meta = GetMetadata(item);
                 if (meta != null)
                     new PropertiesWindow(meta, item.IconSource) { Owner = Application.Current.MainWindow }.ShowDialog();
             }
+        }
+    }
+
+    /// <summary>右键"预览"：跳过容器展开判定，强制走内部预览分发器。</summary>
+    public void PreviewItem(FileItem? item)
+    {
+        if (item == null || _disk == null || item.IsDirectory || item.IsParentEntry) return;
+        try
+        {
+            Status = PreviewDispatcher.Preview(_disk, item.FullPath, item.Name);
+        }
+        catch (Exception ex)
+        {
+            Status = $"内部预览失败（{ex.Message}）";
         }
     }
 
@@ -443,9 +460,85 @@ public sealed class MainViewModel : ViewModelBase
                     ?? (SelectedFile != null ? new List<FileItem> { SelectedFile } : new List<FileItem>());
         int files = items.Count(i => !i.IsDirectory);
         int dirs = items.Count(i => i.IsDirectory);
+        long total = items.Where(i => !i.IsDirectory && !i.IsParentEntry).Sum(i => i.Size);
         SelectionSummary = items.Count == 0
             ? "未选中任何项"
-            : $"已选 {files} 个文件、{dirs} 个文件夹";
+            : $"已选 {files} 个文件、{dirs} 个文件夹 · 总大小 {FileItemFormatter.FormatSize(total)}";
+    }
+
+    /// <summary>右键"生成虚拟磁盘"：把选中的 .zip/.7z 转成一个可挂载的 NTFS VHDX。</summary>
+    public void GenerateVhdx(FileItem? item = null)
+    {
+        var target = item ?? _selectedFile;
+        if (target == null || _disk == null || target.IsDirectory || target.IsParentEntry) return;
+        string ext = Path.GetExtension(target.Name);
+        if (!ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) &&
+            !ext.Equals(".7z", StringComparison.OrdinalIgnoreCase))
+        {
+            Status = "仅支持把 .zip / .7z 归档生成虚拟磁盘。";
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "生成虚拟磁盘",
+            FileName = Path.GetFileNameWithoutExtension(target.Name) + ".vhdx",
+            Filter = "VHDX 虚拟磁盘 (*.vhdx)|*.vhdx"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            Status = $"正在生成 {Path.GetFileName(dialog.FileName)} ...";
+            // VMDK / 容器内的归档必须先落地，7-Zip 才能读
+            string real = _disk.MaterializeToTemp(target.FullPath);
+            Status = ArchiveToVhdxService.Build(real, dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            Status = $"生成虚拟磁盘失败：{ex.Message}";
+            if (!App.Headless)
+                MessageBox.Show(ex.Message, "Basalt — 生成虚拟磁盘失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private bool CanGenerateVhdx()
+    {
+        if (_selectedFile == null || _selectedFile.IsDirectory) return false;
+        string ext = Path.GetExtension(_selectedFile.Name);
+        return ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals(".7z", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>右键"导出到 Chert 工作目录"。</summary>
+    public void ExportToChert(FileItem? item = null)
+    {
+        var target = item ?? _selectedFile;
+        if (target == null || _disk == null || target.IsDirectory || target.IsParentEntry) return;
+        try
+        {
+            string dest = ChertIntegration.Export(_disk, target.FullPath, target.Name);
+            Status = $"已导出到 Chert 工作目录：{dest}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"导出到 Chert 工作目录失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>顶部"在 Chert 中启动"：VHD 用实际盘符，VMDK / 容器用 Chert 配置的 .minecraft 目录。</summary>
+    public void LaunchChert()
+    {
+        if (_disk == null) return;
+        string? root = _disk.DriveLetter is char l ? $"{l}:\\" : null;
+        try
+        {
+            Status = ChertIntegration.Launch(root);
+        }
+        catch (Exception ex)
+        {
+            Status = $"启动 Chert 失败：{ex.Message}";
+        }
     }
 
     private void Extract()

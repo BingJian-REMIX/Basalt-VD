@@ -49,6 +49,7 @@ public sealed class VhdDiskService : IVirtualDisk
                 Name = fi.Name,
                 FullPath = fi.FullName,
                 SizeText = FileItemFormatter.FormatSize(fi.Length),
+                Size = fi.Length,
                 ModifiedText = FileItemFormatter.FormatTime(fi.LastWriteTime),
                 CreatedText = FileItemFormatter.FormatTime(fi.CreationTime),
                 AttributesText = fi.Attributes.ToString(),
@@ -158,4 +159,8 @@ public sealed class VhdDiskService : IVirtualDisk
 
     /// <summary>VHD 里的文件本来就在真实磁盘上，直接返回原路径。</summary>
     public string MaterializeToTemp(string path) => path;
+
+    /// <summary>VHD 模式：文件在真实文件系统上，直接开只读 FileStream。</summary>
+    public Stream OpenRead(string path)
+        => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 }

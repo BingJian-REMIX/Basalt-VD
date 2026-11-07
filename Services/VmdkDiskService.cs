@@ -176,6 +176,7 @@ public sealed class VmdkDiskService : IVirtualDisk
                 Name = Path.GetFileName(file),
                 FullPath = $"{idx}{file}",
                 SizeText = FileItemFormatter.FormatSize(fs.GetFileLength(file)),
+                Size = fs.GetFileLength(file),
                 ModifiedText = FileItemFormatter.FormatTime(fs.GetLastWriteTimeUtc(file).ToLocalTime()),
                 CreatedText = FileItemFormatter.FormatTime(fs.GetCreationTimeUtc(file).ToLocalTime()),
                 AttributesText = SafeAttributes(fs, file),
@@ -267,8 +268,7 @@ public sealed class VmdkDiskService : IVirtualDisk
             throw new FileNotFoundException("找不到 VMDK 内的文件。", path);
 
         // VMDK 内文件不存在于真实磁盘，无法直接交给 shell —— 先导出到临时文件再打开。
-        string ext = Path.GetExtension(inner);
-        string temp = Path.Combine(Path.GetTempPath(), $"basalt_open_{Guid.NewGuid():N}{ext}");
+        string temp = TempFileRegistry.NewPath(Path.GetFileName(inner));
         try
         {
             using (var src = fs.OpenFile(inner, FileMode.Open, FileAccess.Read))
@@ -338,9 +338,7 @@ public sealed class VmdkDiskService : IVirtualDisk
         if (!TryGetFileSystem(path, out var fs, out _, out string inner))
             throw new FileNotFoundException("找不到 VMDK 内的文件。", path);
 
-        string dir = Path.Combine(Path.GetTempPath(), "BasaltOpen");
-        Directory.CreateDirectory(dir);
-        string temp = Path.Combine(dir, Path.GetFileName(inner));
+        string temp = TempFileRegistry.NewPath(Path.GetFileName(inner));
 
         using (var src = fs.OpenFile(inner, FileMode.Open, FileAccess.Read))
         using (var dst = File.Create(temp))
@@ -348,5 +346,13 @@ public sealed class VmdkDiskService : IVirtualDisk
             src.CopyTo(dst);
         }
         return temp;
+    }
+
+    /// <summary>VMDK 模式：DiscUtils 文件系统流，全程在内存/镜像内，不落地。</summary>
+    public Stream OpenRead(string path)
+    {
+        if (!TryGetFileSystem(path, out var fs, out _, out string inner))
+            throw new FileNotFoundException("找不到 VMDK 内的文件。", path);
+        return fs.OpenFile(inner, FileMode.Open, FileAccess.Read);
     }
 }
