@@ -14,9 +14,6 @@ publish/
 .DS_Store
 Thumbs.db
 
-# 嵌套的独立镜像仓库（Basalt-VD），避免被本仓库当成 gitlink 跟踪
-Basalt-VD/
-
 # 说明：.workbuddy/memory/ 有意纳入版本管理 ——
 # MEMORY.md 是本项目唯一的长期技术文档（virtdisk P/Invoke 常量、LTRData 版本约束等），
 # 克隆后不带上就等于把踩过的坑重踩一遍。
