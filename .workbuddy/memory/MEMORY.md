@@ -59,3 +59,11 @@ UI：无边框窗口、左 250px TreeView 懒加载目录树、右侧 GridView�
 - 7z 列目录加 `-sccUTF-8` + 原始字节 UTF-8/GB18030 双解码；`App.OnStartup` 注册 `CodePagesEncodingProvider`。
 - 新自测：`--previewtest [路径]` / `--vhdxtest <归档>` / `--clitest` / `--previewui [--light]`。
 - **本机非管理员**：VHD 盘符分配失败（`Mount-DiskImage` 报无特权），daemon 全流程未实机验证；TCP 停止通道已由 `--clitest` 覆盖。
+
+## 2026-11-08 第二轮（深度清理 / 新建 VHDX / 递归提取）
+
+- `CleanupService`（扫描三引擎通用 / 删除仅 VHD 可写）、`EmptyVhdxService`（MBR+GPT 空白 NTFS）、`RecursiveExtractor`（OpenRead 流重建目录树 + zip-slip 防护）、`CleanupWindow`/`NewDiskWindow`/`ProgressWindow`。
+- **GPT 类名是 `GuidPartitionTable`**，不是 `GptPartitionTable`；判 GPT 用 `disk.Partitions[0] is GuidPartitionInfo`。
+- **ContextMenu 必须显式设 `DataContext`**（`FileGrid.ContextMenu.DataContext = _vm`），否则菜单内 Command 绑定全失效。
+- **暗色主题不要用 ComboBox**：系统模板选中项渲染空白，改 RadioButton。
+- 新自测：`--deeptest`（36 PASS）、`--deepui [--light]`（14 PASS × 暗/亮）。Release 15 组回归 0 失败。

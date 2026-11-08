@@ -113,6 +113,9 @@
                     <Button Content="生成虚拟磁盘" Command="{Binding GenerateVhdxCommand}" Margin="8,0,0,0"
                             Style="{StaticResource SecondaryButtonStyle}"
                             ToolTip="选中 .zip / .7z 后，7z 解压并封装为可挂载的 NTFS .vhdx"/>
+                    <Button Content="新建虚拟磁盘" Command="{Binding NewDiskCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            ToolTip="纯托管生成带空白 NTFS 分区的 VHDX（可选 MBR / GPT）"/>
                     <Button Content="在 Chert 中启动" Command="{Binding LaunchChertCommand}" Margin="8,0,0,0"
                             ToolTip="GUI 优先；下一版 Chert 支持 chert:// 直接唤起"/>
                 </StackPanel>
@@ -327,7 +330,10 @@
                                       ToolTip="强制走内部预览窗口（文本 / 图片 / 十六进制）"/>
                             <MenuItem Header="展开为容器" Click="ExpandContext_Click"
                                       ToolTip="在 Basalt 内直接浏览压缩包 / ISO / 自解压程序的内容"/>
-                            <MenuItem Header="提取文件到本地" Click="ExtractContext_Click"/>
+                            <MenuItem Header="提取到本地" Click="ExtractContext_Click"
+                                      ToolTip="文件直接导出；文件夹递归重建目录结构并显示进度"/>
+                            <MenuItem Header="深度清理" Command="{Binding DeepCleanCommand}"
+                                      ToolTip="扫描回收站 / Windows 临时目录 / 系统更新缓存的占用并提供一键清理"/>
                             <MenuItem Header="导出到 Chert 工作目录" Click="ExportChertContext_Click"/>
                             <MenuItem Header="生成虚拟磁盘 (.vhdx)" Click="GenerateVhdxContext_Click"/>
                             <MenuItem Header="属性" Click="PropertiesContext_Click"/>

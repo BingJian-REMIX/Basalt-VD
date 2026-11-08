@@ -19,6 +19,9 @@ public partial class MainWindow : Window
     {
         DataContext = _vm;
         InitializeComponent();
+        // ContextMenu 不在窗口视觉树里，绑定源不会自动继承；显式给一次 DataContext，
+        // 菜单内的 Command 绑定（刷新 / 返回上级 / 深度清理）才会生效。
+        if (FileGrid.ContextMenu != null) FileGrid.ContextMenu.DataContext = _vm;
         _vm.PropertyChanged += Vm_PropertyChanged;
     }
 
@@ -147,16 +150,12 @@ public partial class MainWindow : Window
         _vm.ExpandAsContainer(item);
     }
 
-    private void ExtractContext_Click(object sender, RoutedEventArgs e)    {
+    private void ExtractContext_Click(object sender, RoutedEventArgs e)
+    {
         var item = ContextItem();
-        if (item == null) return;
-        if (item.IsDirectory)
-        {
-            _vm.Status = "暂不支持提取文件夹，请先进入该目录再选择文件。";
-            return;
-        }
+        if (item == null || item.IsParentEntry) return;
         _vm.SelectedFile = item;
-        _vm.ExtractCommand.Execute(null);
+        _vm.ExtractCommand.Execute(null);   // ViewModel 内按文件 / 文件夹分流
     }
 
     private void PropertiesContext_Click(object sender, RoutedEventArgs e)

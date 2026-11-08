@@ -96,6 +96,8 @@ public sealed class MainViewModel : ViewModelBase
     public RelayCommand GoUpCommand { get; }
     public RelayCommand GenerateVhdxCommand { get; }
     public RelayCommand LaunchChertCommand { get; }
+    public RelayCommand NewDiskCommand { get; }
+    public RelayCommand DeepCleanCommand { get; }
 
     public MainViewModel()
     {
@@ -107,6 +109,27 @@ public sealed class MainViewModel : ViewModelBase
         GoUpCommand = new RelayCommand(_ => GoUp(), _ => CanGoUp());
         GenerateVhdxCommand = new RelayCommand(_ => GenerateVhdx(), _ => CanGenerateVhdx());
         LaunchChertCommand = new RelayCommand(_ => LaunchChert(), _ => _disk != null);
+        NewDiskCommand = new RelayCommand(_ => NewVirtualDisk());
+        DeepCleanCommand = new RelayCommand(_ => ShowDeepClean(), _ => _disk != null);
+    }
+
+    /// <summary>工具栏「新建虚拟磁盘」：弹出参数窗口，纯托管生成空白 NTFS VHDX。</summary>
+    private void NewVirtualDisk()
+    {
+        if (App.Headless) return;
+        var win = new NewDiskWindow { Owner = Application.Current.MainWindow };
+        Status = win.ShowDialog() == true && win.CreatedSummary != null
+            ? win.CreatedSummary
+            : "已取消新建虚拟磁盘。";
+    }
+
+    /// <summary>右键「深度清理」：扫描系统缓存目录并展示，删除按钮按引擎可写性启用。</summary>
+    private void ShowDeepClean()
+    {
+        if (_disk == null) { Status = "请先挂载虚拟磁盘。"; return; }
+        if (App.Headless) return;
+        new CleanupWindow(_disk) { Owner = Application.Current.MainWindow }.ShowDialog();
+        Status = "深度清理窗口已关闭。";
     }
 
     private void Mount()
@@ -544,9 +567,11 @@ public sealed class MainViewModel : ViewModelBase
     private void Extract()
     {
         if (_selectedFile == null || _disk == null) return;
+        // 文件夹：递归遍历 + OpenRead 流重建整棵目录树（带进度窗口）
         if (_selectedFile.IsDirectory)
         {
-            Status = "暂不支持提取文件夹，请先进入该目录再选择文件。";
+            if (_selectedFile.IsParentEntry) return;
+            ExtractFolder(_selectedFile);
             return;
         }
 
@@ -568,6 +593,41 @@ public sealed class MainViewModel : ViewModelBase
             Status = $"提取失败：{ex.Message}";
             if (!App.Headless)
                 MessageBox.Show(ex.Message, "Basalt — 提取失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// 右键文件夹「提取到本地」：递归读取子目录与文件，用 IVirtualDisk.OpenRead 的流
+    /// 在本地重建相同目录结构。扫描用 Loading 动画，复制用确定进度条，支持取消。
+    /// </summary>
+    private void ExtractFolder(FileItem item)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择提取到的目标文件夹（将在其下创建同名子目录）",
+            Multiselect = false
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var disk = _disk!;
+        var win = new ProgressWindow { Owner = Application.Current.MainWindow };
+        using var cts = new CancellationTokenSource();
+        win.Cancelled += () => cts.Cancel();
+        var progress = new Progress<ExtractProgress>(p => win.Update(p));
+
+        try
+        {
+            // 后台线程跑文件流；Progress<T> 捕获 UI 同步上下文，回调由 ShowDialog 的嵌套消息泵送到窗口
+            var task = Task.Run(() => RecursiveExtractor.Extract(
+                disk, item.FullPath, dialog.FolderName, progress, cts.Token));
+            win.ShowDialog();
+            ExtractResult result = task.GetAwaiter().GetResult();
+            Status = result.Summary;
+        }
+        catch (Exception ex)
+        {
+            win.SetFailed(ex.Message);
+            Status = $"提取文件夹失败：{ex.Message}";
         }
     }
 }

@@ -25,7 +25,7 @@ public partial class App : Application
                     args[0].Equals("stop", StringComparison.OrdinalIgnoreCase));
 
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
-        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui");
+        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui");
         if (cli)
         {
             int code = args[0].Equals("mount", StringComparison.OrdinalIgnoreCase)
@@ -139,6 +139,24 @@ public partial class App : Application
         {
             string report = Services.CliSelfTest.Run();
             WriteReport(report, "basalt_clitest.txt");
+            Shutdown();
+            return;
+        }
+        int dt = Array.IndexOf(args, "--deeptest");
+        if (dt >= 0)
+        {
+            // 递归提取 / 深度清理 / 空白 VHDX（MBR+GPT）全链路自测
+            string report = Services.DeepFeatureSelfTest.Run();
+            WriteReport(report, "basalt_deeptest.txt");
+            Shutdown();
+            return;
+        }
+        int du = Array.IndexOf(args, "--deepui");
+        if (du >= 0)
+        {
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.DeepRenderTest.Run(light);
+            WriteReport(report, light ? "basalt_deepui_light.txt" : "basalt_deepui.txt");
             Shutdown();
             return;
         }

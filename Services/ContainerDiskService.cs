@@ -251,6 +251,7 @@ public sealed class ContainerDiskService : IVirtualDisk
                 Name = NameOf(e.Path),
                 FullPath = e.Path,
                 SizeText = FileItemFormatter.FormatSize(e.Size),
+                Size = e.Size,
                 ModifiedText = FileItemFormatter.FormatTime(e.Modified),
                 CreatedText = "",
                 AttributesText = e.Attributes,
