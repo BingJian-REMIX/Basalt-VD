@@ -52,6 +52,21 @@ public static class PreviewSelfTest
             File.WriteAllBytes(Path.Combine(stage, "pic.png"), Convert.FromBase64String(OnePixelPng));
             File.WriteAllText(Path.Combine(stage, "中文目录", "中文文件.txt"), "层级中文内容\n", new UTF8Encoding(false));
 
+            // 二进制伪装成文本扩展名：PE 风格 .text 段 / 含 \0 / 高控制字符占比
+            var peSection = new byte[512];
+            peSection[0] = (byte)'M'; peSection[1] = (byte)'Z';
+            for (int i = 2; i < peSection.Length; i++) peSection[i] = (byte)((i * 37 + 11) & 0xFF);
+            peSection[64] = 0; peSection[128] = 0;
+            File.WriteAllBytes(Path.Combine(stage, "section.text"), peSection);
+            File.WriteAllBytes(Path.Combine(stage, "nul.txt"), new byte[] { 0x41, 0x00, 0x42, 0x43, 0x44 });
+            var ctrl = new byte[100];
+            Array.Fill(ctrl, (byte)'A');
+            for (int i = 0; i < 15; i++) ctrl[i] = 0x01;
+            File.WriteAllBytes(Path.Combine(stage, "ctrl.log"), ctrl);
+            byte[] utf16 = Encoding.Unicode.GetPreamble()
+                .Concat(Encoding.Unicode.GetBytes("UTF-16 文本保留\n")).ToArray();
+            File.WriteAllBytes(Path.Combine(stage, "utf16.txt"), utf16);
+
             ZipFile.CreateFromDirectory(stage, zipPath);
             W($"夹具归档: {zipPath}");
             W("");
@@ -70,6 +85,28 @@ public static class PreviewSelfTest
             Check(PreviewDispatcher.Classify("x.unknown") == PreviewKind.Hex, "未知扩展名 → Hex（不偷懒外抛）");
             Check(PreviewDispatcher.Classify("manual.pdf") == PreviewKind.External, ".pdf → 外部兜底");
             Check(PreviewDispatcher.Classify("doc.docx") == PreviewKind.External, ".docx → 外部兜底");
+            W("");
+
+            W("---- 二进制内容嗅探（前 100 字节）----");
+            Check(!PreviewDispatcher.IsBinary(Array.Empty<byte>()), "空内容 → 文本");
+            Check(!PreviewDispatcher.IsBinary(Encoding.UTF8.GetBytes(utf8Text)), "UTF-8 中文文本不误判");
+            Check(!PreviewDispatcher.IsBinary(Encoding.GetEncoding(54936).GetBytes(gbkText)), "GBK 中文文本不误判");
+            Check(!PreviewDispatcher.IsBinary(new byte[] { 0x09, 0x0A, 0x0D, (byte)'A' }), "TAB/LF/CR 不算控制字符");
+            Check(PreviewDispatcher.IsBinary(new byte[] { (byte)'A', 0x00, (byte)'B' }), "含空字节 → 二进制");
+            Check(PreviewDispatcher.IsBinary(ctrl), "控制字符占比 15% → 二进制");
+            var lowCtrl = new byte[100];
+            Array.Fill(lowCtrl, (byte)'A');
+            for (int i = 0; i < 4; i++) lowCtrl[i] = 0x01;
+            Check(!PreviewDispatcher.IsBinary(lowCtrl), "控制字符占比 4% → 仍为文本");
+            Check(!PreviewDispatcher.IsBinary(utf16), "UTF-16 BOM 白名单（保留既有解码）");
+            Check(PreviewDispatcher.IsBinary(peSection[..100]), "PE .text 段 → 二进制");
+            string? selfExe = Environment.ProcessPath;
+            if (selfExe != null && File.Exists(selfExe))
+            {
+                using var fs = File.OpenRead(selfExe);
+                Check(PreviewDispatcher.IsBinary(PreviewDispatcher.ReadHead(fs, 100)),
+                    "真实 PE 文件头 → 二进制", Path.GetFileName(selfExe));
+            }
             W("");
 
             // ---- 容器引擎：中文名 + OpenRead 纯内存流 ----
@@ -112,6 +149,20 @@ public static class PreviewSelfTest
                 var r = PreviewDispatcher.ReadText(s);
                 Check(r.Text.Contains("层级中文内容"), "归档内层级中文路径读取");
             }
+            using (var s = disk.OpenRead("readme.txt"))
+            {
+                byte[] head = PreviewDispatcher.ReadHead(s, 100);
+                var r = PreviewDispatcher.ReadText(s, head);
+                Check(r.Text.StartsWith("Basalt") && r.Text.Contains("中文 UTF-8"),
+                    "带 prefix 的文本读回不丢文件头", r.EncodingName);
+            }
+            using (var s = disk.OpenRead("data.bin"))
+            {
+                byte[] head = PreviewDispatcher.ReadHead(s, 100);
+                byte[] full = PreviewDispatcher.ReadHead(s, 4096, head);
+                Check(full.Length == 4096 && full[0] == 'M' && full[1] == 'Z' && full[99] == binary[99],
+                    "带 prefix 的 Hex 头部拼接完整", full.Length + " 字节");
+            }
             W("");
 
             W("---- 分发器（无界面模式不建窗口）----");
@@ -122,6 +173,17 @@ public static class PreviewSelfTest
                 string d3 = PreviewDispatcher.Preview(disk, "data.bin", "data.bin");
                 Check(d1.Contains("文本") && d2.Contains("图片") && d3.Contains("十六进制"),
                     "三种预览均命中内部窗口", d1 + " | " + d2 + " | " + d3);
+
+                string b1 = PreviewDispatcher.Preview(disk, "section.text", "section.text");
+                string b2 = PreviewDispatcher.Preview(disk, "nul.txt", "nul.txt");
+                string b3 = PreviewDispatcher.Preview(disk, "ctrl.log", "ctrl.log");
+                string t1 = PreviewDispatcher.Preview(disk, "gbk.txt", "gbk.txt");
+                string t2 = PreviewDispatcher.Preview(disk, "utf16.txt", "utf16.txt");
+                Check(b1.Contains("十六进制") && b1.Contains("降级"), "PE .text 段自动降级 Hex", b1);
+                Check(b2.Contains("十六进制"), "含 \\0 的 .txt 自动降级 Hex", b2);
+                Check(b3.Contains("十六进制"), "控制字符超阈值的 .log 自动降级 Hex", b3);
+                Check(t1.Contains("文本") && t1.Contains("GB18030"), "GBK 文本仍走原解码链路", t1);
+                Check(t2.Contains("文本") && t2.Contains("UTF-16"), "UTF-16 BOM 文本不被误杀", t2);
             }
             catch (Exception ex) { Check(false, "分发器执行", ex.Message); }
             W("");
@@ -133,7 +195,9 @@ public static class PreviewSelfTest
                 string summary = ArchiveToVhdxService.Build(zipPath, vhdxPath);
                 Check(File.Exists(vhdxPath), "VHDX 已生成", new FileInfo(vhdxPath).Length + " 字节物理占用");
                 var listed = ArchiveToVhdxService.ListAllFiles(vhdxPath);
-                Check(listed.Count == 6, "回读 VHDX 文件数一致", listed.Count + " 个: " + string.Join(", ", listed));
+                int fixtureCount = Directory.GetFiles(stage, "*", SearchOption.AllDirectories).Length;
+                Check(listed.Count == fixtureCount, "回读 VHDX 文件数一致",
+                    listed.Count + " / " + fixtureCount + " 个: " + string.Join(", ", listed));
                 Check(listed.Any(p => p.Contains("中文文件")), "VHDX 内中文路径保留");
                 W("   " + summary);
             }

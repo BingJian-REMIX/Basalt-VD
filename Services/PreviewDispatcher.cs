@@ -21,6 +21,8 @@ public static class PreviewDispatcher
     private const int MaxTextBytes = 2 * 1024 * 1024;
     private const int MaxTextLines = 5000;
     private const int HexBytes = 4096;
+    private const int SniffBytes = 100;
+    private const int BinaryControlPercent = 10;
 
     private static readonly HashSet<string> TextExt = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -60,6 +62,26 @@ public static class PreviewDispatcher
         return PreviewKind.Hex;
     }
 
+    /// <summary>
+    /// 内容嗅探：出现空字节，或控制字符（TAB/LF/CR 除外）占比达到阈值，即判为二进制。
+    /// UTF-16 BOM 文本天然含 \0，作为白名单保留既有 UTF-16 解码能力。
+    /// </summary>
+    public static bool IsBinary(ReadOnlySpan<byte> head)
+    {
+        if (head.Length == 0) return false;
+        if (head.Length >= 2 &&
+            ((head[0] == 0xFF && head[1] == 0xFE) || (head[0] == 0xFE && head[1] == 0xFF)))
+            return false;
+
+        int control = 0;
+        foreach (byte b in head)
+        {
+            if (b == 0) return true;
+            if ((b < 0x20 && b is not (0x09 or 0x0A or 0x0D)) || b == 0x7F) control++;
+        }
+        return control * 100 >= head.Length * BinaryControlPercent;
+    }
+
     /// <summary>按分类打开对应预览窗口；返回一行状态栏文案。无界面自测时只返回描述，不建窗口。</summary>
     public static string Preview(IVirtualDisk disk, string path, string name)
     {
@@ -71,7 +93,17 @@ public static class PreviewDispatcher
             case PreviewKind.Text:
             {
                 using var s = disk.OpenRead(path);
-                var result = ReadText(s);
+                byte[] sniff = ReadHead(s, SniffBytes);
+                if (IsBinary(sniff))
+                {
+                    // 二进制内容绝不交给文本窗口解码；把已嗅探的头部接上前 4KB 直接转 Hex。
+                    byte[] head = ReadHead(s, HexBytes, sniff);
+                    if (!App.Headless)
+                        new HexViewerWindow(name, head) { Owner = owner }.Show();
+                    return $"内部十六进制预览 {name} — 检测到二进制内容，自动降级，前 {head.Length} 字节";
+                }
+
+                var result = ReadText(s, sniff);
                 if (!App.Headless)
                     new TextViewerWindow(name, result) { Owner = owner }.Show();
                 return $"内部文本预览 {name} — {result.EncodingName}，{result.LineCount} 行" +
@@ -105,13 +137,18 @@ public static class PreviewDispatcher
         }
     }
 
-    /// <summary>读取文本：上限 2MB / 5000 行，自动识别 BOM 与 GBK。</summary>
-    public static TextPreview ReadText(Stream src)
+    /// <summary>读取文本：上限 2MB / 5000 行，自动识别 BOM 与 GBK。prefix 为已嗅探消耗的文件头。</summary>
+    public static TextPreview ReadText(Stream src, byte[]? prefix = null)
     {
         using var buffer = new MemoryStream();
         var chunk = new byte[64 * 1024];
         int total = 0;
         int n;
+        if (prefix is { Length: > 0 })
+        {
+            buffer.Write(prefix, 0, prefix.Length);
+            total = prefix.Length;
+        }
         while (total < MaxTextBytes &&
                (n = src.Read(chunk, 0, Math.Min(chunk.Length, MaxTextBytes - total))) > 0)
         {
@@ -181,10 +218,16 @@ public static class PreviewDispatcher
         return image;
     }
 
-    public static byte[] ReadHead(Stream src, int count)
+    /// <summary>读取前 count 字节；prefix 为已消耗的文件头，拼在结果开头，避免重复读流。</summary>
+    public static byte[] ReadHead(Stream src, int count, byte[]? prefix = null)
     {
         var buffer = new byte[count];
         int read = 0, n;
+        if (prefix is { Length: > 0 })
+        {
+            read = Math.Min(prefix.Length, count);
+            Array.Copy(prefix, 0, buffer, 0, read);
+        }
         while (read < count && (n = src.Read(buffer, read, count - read)) > 0) read += n;
         if (read != count) Array.Resize(ref buffer, read);
         return buffer;
