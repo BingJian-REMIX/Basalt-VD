@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ISO 镜像检查器"
-        Width="780" Height="780" MinWidth="660" MinHeight="520"
+        Width="780" Height="860" MinWidth="660" MinHeight="520"
         WindowStartupLocation="CenterOwner"
         Icon="/Basalt;component/Assets/basalt.ico"
         Background="{DynamicResource BgBrush}"
@@ -41,6 +41,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -125,6 +126,9 @@
                 <!-- ============ sources 文件清单 ============ -->
                 <TextBlock Text="sources 目录文件" Style="{StaticResource SectionStyle}"/>
                 <Border Style="{StaticResource CardStyle}">
+                    <!-- sources 常有上百个文件，单独限高滚动，避免把整页撑得过深 -->
+                    <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
                     <ItemsControl x:Name="FileList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -153,40 +157,48 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                </Border>
-
-                <!-- ============ 精简选项（UI 占位） ============ -->
-                <TextBlock Text="精简选项（UI 占位）" Style="{StaticResource SectionStyle}"/>
-                <Border Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                        <TextBlock Text="为下一版「精简 ISO」预留的勾选项。当前仅记录选择状态，不修改任何镜像内容。"
-                                   FontSize="11.5" Foreground="{DynamicResource FgMutedBrush}"
-                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,4">
-                            <CheckBox x:Name="DefenderBox" Content="移除 Windows Defender" FontSize="12"
-                                      Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
-                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
-                            <CheckBox x:Name="EdgeBox" Content="移除 Edge" FontSize="12"
-                                      Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
-                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
-                            <CheckBox x:Name="DriverBox" Content="移除冗余驱动" FontSize="12"
-                                      Foreground="{DynamicResource FgBrush}"
-                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
-                        </StackPanel>
-                        <TextBlock x:Name="TrimSummary" FontSize="11" Margin="0,6,0,2"
-                                   Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"/>
-                        <Button x:Name="ApplyTrimButton" Content="应用精简（下一版实现）"
-                                IsEnabled="False" HorizontalAlignment="Left" Margin="0,6,0,0"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                ToolTip="底层镜像修改尚未实现，本版本仅做 UI 占位"/>
-                    </StackPanel>
+                    </ScrollViewer>
                 </Border>
 
             </StackPanel>
         </ScrollViewer>
 
-        <!-- ============ 底部操作区 ============ -->
+        <!-- ============ 精简选项（固定可见，不随版本 / 文件数量被挤出视口） ============ -->
         <Border Grid.Row="1" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Padding="18,8">
+            <StackPanel>
+                <TextBlock Text="精简选项（UI 占位）" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource FgBrush}" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                    <CheckBox x:Name="DefenderBox" Content="移除 Windows Defender" FontSize="12"
+                              Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                              Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                    <CheckBox x:Name="EdgeBox" Content="移除 Edge" FontSize="12"
+                              Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                              Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                    <CheckBox x:Name="DriverBox" Content="移除冗余驱动" FontSize="12"
+                              Foreground="{DynamicResource FgBrush}"
+                              Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                </StackPanel>
+                <Grid Margin="0,5,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" x:Name="TrimSummary" FontSize="11"
+                               Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" x:Name="ApplyTrimButton" Content="应用精简（下一版实现）"
+                            IsEnabled="False" MinWidth="150" Height="26" Margin="10,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            ToolTip="底层镜像修改尚未实现，本版本仅做 UI 占位"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ============ 底部操作区 ============ -->
+        <Border Grid.Row="2" Background="{DynamicResource PanelBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                 Padding="18,10">
             <Grid>

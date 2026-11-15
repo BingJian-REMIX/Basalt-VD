@@ -16,7 +16,11 @@ public static class DeepFeatureSelfTest
         public void Report(ExtractProgress value) { lock (Items) Items.Add(value); }
     }
 
-    public static string Run()
+    /// <param name="tempRoot">
+    /// 夹具根目录。默认系统临时目录；系统盘空间不足时可传入数据盘目录
+    /// （`Basalt.exe --deeptest D:\some\dir`），夹具结束会自行删除。
+    /// </param>
+    public static string Run(string? tempRoot = null)
     {
         var sb = new StringBuilder();
         int pass = 0, fail = 0;
@@ -30,7 +34,8 @@ public static class DeepFeatureSelfTest
         W("=== Basalt 深度功能自测（递归提取 / 深度清理 / 新建 VHDX） ===");
         W("");
 
-        string stage = Path.Combine(Path.GetTempPath(), $"BasaltDeepTest_{Guid.NewGuid():N}");
+        string testRoot = string.IsNullOrWhiteSpace(tempRoot) ? Path.GetTempPath() : tempRoot;
+        string stage = Path.Combine(testRoot, $"BasaltDeepTest_{Guid.NewGuid():N}");
         Directory.CreateDirectory(stage);
         string? sevenZip = ContainerDetector.SevenZipPath;
 

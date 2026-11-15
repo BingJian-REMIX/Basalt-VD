@@ -441,6 +441,13 @@ public sealed class ContainerDiskService : IVirtualDisk
     /// </summary>
     public byte[] ReadHead(string path, int maxBytes)
     {
+        // ISO / UDF 可直接 seek，不必启动 7-Zip 再提前 Kill（也避免管道未排空时的报错）
+        if (Format == ContainerFormat.Iso)
+        {
+            var fast = IsoRandomAccess.TryReadRange(_archivePath, path, 0, maxBytes);
+            if (fast != null) return fast;
+        }
+
         string? sevenZip = ContainerDetector.SevenZipPath
             ?? throw new InvalidOperationException("未找到 7-Zip（7z.exe）。");
 
@@ -486,5 +493,77 @@ public sealed class ContainerDiskService : IVirtualDisk
             try { proc.WaitForExit(5000); } catch { /* 超时由 Dispose 收尾 */ }
         }
         return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// 容器内的随机读取：ISO 走 UDF 可寻址快路径，其它格式用 7z -so 顺序跳过。
+    /// <para>
+    /// 真实 Windows ISO 的 install.wim XML 在 4.9 GB 处，顺序跳过需要 45 秒左右，
+    /// 因此 ISO 必须由 IsoRandomAccess 接管；非光盘容器若偏移过大则明确拒绝并降级。
+    /// </para>
+    /// </summary>
+    public byte[] ReadRange(string path, long offset, int count)
+    {
+        if (count <= 0 || offset < 0) return Array.Empty<byte>();
+
+        if (Format == ContainerFormat.Iso)
+        {
+            var fast = IsoRandomAccess.TryReadRange(_archivePath, path, offset, count);
+            if (fast != null) return fast;
+        }
+
+        const long MaxDrainBytes = 256L << 20;
+        if (offset > MaxDrainBytes)
+            throw new InvalidDataException(
+                $"元数据位于文件 {FileItemFormatter.FormatSize(offset)} 处，当前容器不支持随机访问；" +
+                "可先提取安装映像到本地再检查。");
+
+        string? sevenZip = ContainerDetector.SevenZipPath
+            ?? throw new InvalidOperationException("未找到 7-Zip（7z.exe）。");
+
+        var psi = new ProcessStartInfo(sevenZip)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        psi.ArgumentList.Add("e");
+        psi.ArgumentList.Add("-so");
+        psi.ArgumentList.Add(_archivePath);
+        psi.ArgumentList.Add(path);
+        psi.ArgumentList.Add("-y");
+        psi.ArgumentList.Add("-bso0");
+        psi.ArgumentList.Add("-bsp0");
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("无法启动 7-Zip。");
+        _ = proc.StandardError.ReadToEndAsync();
+
+        var skip = new byte[64 * 1024];
+        long left = offset;
+        while (left > 0)
+        {
+            int n = proc.StandardOutput.BaseStream.Read(skip, 0, (int)Math.Min(skip.Length, left));
+            if (n <= 0) break;
+            left -= n;
+        }
+        if (left > 0)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+            return Array.Empty<byte>();       // 文件比偏移还短
+        }
+
+        var buffer = new byte[count];
+        int read = 0;
+        while (read < count)
+        {
+            int n = proc.StandardOutput.BaseStream.Read(buffer, read, count - read);
+            if (n <= 0) break;
+            read += n;
+        }
+        try { proc.Kill(entireProcessTree: true); } catch { }
+        if (read != count) Array.Resize(ref buffer, read);
+        return buffer;
     }
 }

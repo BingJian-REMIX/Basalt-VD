@@ -50,7 +50,7 @@ public partial class IsoInspectorWindow : Window
     {
         if (_loading) return;
         _loading = true;
-        HintText.Text = "正在定位 sources 目录并读取安装映像元数据...";
+        HintText.Text = "正在定位 sources 目录，并按偏移读取安装映像尾部的版本元数据...";
         ExtractButton.IsEnabled = false;
         try
         {

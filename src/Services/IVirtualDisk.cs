@@ -81,6 +81,47 @@ public interface IVirtualDisk : IDisposable
     }
 
     /// <summary>
+    /// 随机读取文件内 [offset, offset+count) 的字节。
+    /// <para>
+    /// WIM / ESD 的 XML 元数据由 208 字节头里的 rhXmlData 给出绝对偏移，通常落在
+    /// 4~6 GB 映像的尾部，必须能按偏移取，不能只预读文件开头。
+    /// </para>
+    /// 默认实现走 OpenRead 的 Seek；不可寻址的流退化为顺序跳过。
+    /// 容器引擎（尤其 ISO）重写为 UDF 可寻址读取，避免顺序吐出数 GB 数据。
+    /// </summary>
+    byte[] ReadRange(string path, long offset, int count)
+    {
+        if (count <= 0 || offset < 0) return Array.Empty<byte>();
+        using var s = OpenRead(path);
+        if (s.CanSeek)
+        {
+            s.Position = offset;
+        }
+        else
+        {
+            var skip = new byte[64 * 1024];
+            long left = offset;
+            while (left > 0)
+            {
+                int n = s.Read(skip, 0, (int)Math.Min(skip.Length, left));
+                if (n <= 0) return Array.Empty<byte>();
+                left -= n;
+            }
+        }
+
+        var buffer = new byte[count];
+        int read = 0;
+        while (read < count)
+        {
+            int n = s.Read(buffer, read, count - read);
+            if (n <= 0) break;
+            read += n;
+        }
+        if (read != count) Array.Resize(ref buffer, read);
+        return buffer;
+    }
+
+    /// <summary>
     /// 把镜像内的文件"实体化"到本地真实路径，返回该真实路径。
     /// 用于把归档文件交给外部程序（7-Zip）处理 —— 归档必须先落地成真实文件。
     /// VHD：路径本身就是真实的，直接返回；VMDK/容器：需先导出到临时目录。

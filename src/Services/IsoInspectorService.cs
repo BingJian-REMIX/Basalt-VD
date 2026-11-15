@@ -23,6 +23,11 @@ public sealed class IsoInspectionResult
     public WimReadResult? Wim { get; set; }
     public string? Error { get; set; }
 
+    /// <summary>XML 元数据在 WIM 内的绝对偏移（诊断用）。</summary>
+    public string XmlOffsetText { get; set; } = "";
+    /// <summary>随机读取失败时的原因（诊断用）。</summary>
+    public string? XmlReadNote { get; set; }
+
     public string SourcesDisplay => SourcesPath ?? "未找到 sources 目录（已列出镜像根）";
     public string InstallImageDisplay => InstallImageName ?? "未找到 install.wim / install.esd";
     public string InstallImageSizeText => InstallImagePath == null
@@ -33,11 +38,15 @@ public sealed class IsoInspectionResult
 /// <summary>
 /// ISO 检查器的数据层：定位 sources → 找到 install.wim / install.esd → 读大小 → 解析 WIM XML 版本列表。
 /// 只依赖 IVirtualDisk，因此容器内嵌 ISO、真实路径 ISO 都能复用。
+/// <para>
+/// 真实 Windows ISO 的 install.wim 有 4~6 GB 且 XML 在文件尾部，采用两阶段读取：
+/// 先 ReadHead(208) 定位 XML 绝对偏移，再 ReadRange 精确取回那 16 KB，绝不把整个映像灌进内存。
+/// </para>
 /// </summary>
 public static class IsoInspectorService
 {
-    /// <summary>预读上限：WIM 头 + XML 资源都在文件开头；避免把 4~6 GB 的 install.wim 整体载入内存。</summary>
-    public const int PrefetchBytes = 16 * 1024 * 1024;
+    /// <summary>第一阶段只读 WIM 头。XML 位置由头里的 rhXmlData 给出，不必预读整个开头。</summary>
+    public const int HeaderBytes = WimMetadataReader.HeaderSize;
 
     /// <summary>在镜像根下找 sources 目录（大小写不敏感，ISO 里常写作 SOURCES）。找不到返回 null。</summary>
     public static string? FindSourcesPath(IVirtualDisk disk)
@@ -54,7 +63,7 @@ public static class IsoInspectorService
         }
     }
 
-    public static IsoInspectionResult Inspect(IVirtualDisk disk, int prefetchBytes = PrefetchBytes)
+    public static IsoInspectionResult Inspect(IVirtualDisk disk)
     {
         var result = new IsoInspectionResult();
 
@@ -93,11 +102,46 @@ public static class IsoInspectorService
 
         try
         {
-            byte[] head = disk.ReadHead(install.FullPath, prefetchBytes);
-            result.Wim = WimMetadataReader.Read(head);
+            byte[] head = disk.ReadHead(install.FullPath, HeaderBytes);
+            var loc = WimMetadataReader.LocateXml(head);
+            result.XmlOffsetText = loc.Success ? $"{loc.Offset} 字节（{loc.OffsetText}）" : "不可用";
+
+            byte[]? xml = null;
+            string source = "";
+            if (loc.Success)
+            {
+                if (loc.Offset + loc.Size <= head.Length)
+                {
+                    source = "头部预读";
+                }
+                else
+                {
+                    // XML 在 GB 级映像的尾部：按绝对偏移随机读取（ISO 走 UDF seek，毫秒级）
+                    try
+                    {
+                        xml = disk.ReadRange(install.FullPath, loc.Offset, (int)loc.Size);
+                        if (xml.Length == 0)
+                        {
+                            xml = null;
+                            result.XmlReadNote = "按偏移读取未返回数据";
+                        }
+                        else
+                        {
+                            source = $"尾部随机读取 @{loc.OffsetText}";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        result.XmlReadNote = ex.Message;
+                    }
+                }
+            }
+
+            result.Wim = WimMetadataReader.Read(head, xml, source);
             result.Images.AddRange(result.Wim.Images);
             if (!result.Wim.Success)
-                result.Error = "版本列表不可用，已降级为文件清单；可先提取安装映像到本地。";
+                result.Error = "版本列表不可用，已降级为文件清单；可先提取安装映像到本地。" +
+                               (result.XmlReadNote != null ? $"（{result.XmlReadNote}）" : "");
         }
         catch (Exception ex)
         {

@@ -25,7 +25,7 @@ public partial class App : Application
                     args[0].Equals("stop", StringComparison.OrdinalIgnoreCase));
 
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
-        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui" or "--isotest" or "--isoui");
+        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui" or "--isotest" or "--isoui" or "--isoreal" or "--isorealui");
         if (cli)
         {
             int code = args[0].Equals("mount", StringComparison.OrdinalIgnoreCase)
@@ -146,7 +146,7 @@ public partial class App : Application
         if (dt >= 0)
         {
             // 递归提取 / 深度清理 / 空白 VHDX（MBR+GPT）全链路自测
-            string report = Services.DeepFeatureSelfTest.Run();
+            string report = Services.DeepFeatureSelfTest.Run(PathArg(args, dt + 1));
             WriteReport(report, "basalt_deeptest.txt");
             Shutdown();
             return;
@@ -178,6 +178,25 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        int ir = Array.IndexOf(args, "--isoreal");
+        if (ir >= 0)
+        {
+            // 真实 Windows ISO 实机验证：sources / install.wim 大小 / 尾部 XML 版本列表 / 耗时
+            string report = Services.IsoInspectorSelfTest.RunReal(PathArg(args, ir + 1));
+            WriteReport(report, "basalt_isoreal.txt");
+            Shutdown();
+            return;
+        }
+        int iru = Array.IndexOf(args, "--isorealui");
+        if (iru >= 0)
+        {
+            // 用真实 ISO 渲染检查器窗口并截图
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.IsoInspectorSelfTest.RunRealUi(PathArg(args, iru + 1), light);
+            WriteReport(report, light ? "basalt_isorealui_light.txt" : "basalt_isorealui.txt");
+            Shutdown();
+            return;
+        }
         int pu = Array.IndexOf(args, "--previewui");
         if (pu >= 0)
         {
@@ -196,6 +215,10 @@ public partial class App : Application
         Basalt.Common.TempFileRegistry.Cleanup();
         base.OnExit(e);
     }
+
+    /// <summary>取诊断参数后的第一个路径参数；允许 --light 等开关出现在路径前 / 后。</summary>
+    private static string PathArg(string[] args, int start)
+        => args.Skip(start).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal)) ?? "";
 
     /// <summary>把自检报告以 UTF-8 写入临时目录（默认编码会写出乱码）。</summary>
     private static void WriteReport(string report, string fileName)

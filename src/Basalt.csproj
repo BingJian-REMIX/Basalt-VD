@@ -16,6 +16,10 @@
     <PackageReference Include="LTRData.DiscUtils.Ntfs" Version="1.0.47" />
     <PackageReference Include="LTRData.DiscUtils.Vmdk" Version="1.0.47" />
     <PackageReference Include="LTRData.DiscUtils.Vhdx" Version="1.0.47" />
+    <!-- 光盘镜像的可寻址读取：install.wim 的 XML 元数据写在 4~6 GB 文件尾部，
+         用 UDF / ISO9660 直接 seek，避免让 7-Zip 顺序吐出数 GB 数据。 -->
+    <PackageReference Include="LTRData.DiscUtils.Udf" Version="1.0.47" />
+    <PackageReference Include="LTRData.DiscUtils.Iso9660" Version="1.0.47" />
     <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
   </ItemGroup>
 

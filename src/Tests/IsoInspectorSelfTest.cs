@@ -244,6 +244,207 @@ public static class IsoInspectorSelfTest
         return sb.ToString();
     }
 
+    // ==================== 真实 ISO 实机验证 ====================
+
+    /// <summary>
+    /// 对真实 Windows 安装 ISO 跑完整链路：7z 列目录 → sources 定位 → 208 字节 WIM 头 →
+    /// UDF 可寻址读取尾部 XML → 版本列表。夹具无法覆盖"XML 在 4~6 GB 文件尾部"这一真实布局。
+    /// 用法：Basalt.exe --isoreal "D:\path\to\windows.iso"
+    /// </summary>
+    public static string RunReal(string isoPath)
+    {
+        var sb = new StringBuilder();
+        int pass = 0, fail = 0;
+        void Check(bool ok, string label, string detail = "")
+        {
+            W(sb, $"   [{(ok ? "PASS" : "FAIL")}] {label}{(detail.Length > 0 ? " — " + detail : "")}");
+            if (ok) pass++; else fail++;
+        }
+
+        W(sb, "=== Basalt 真实 ISO 实机验证 ===");
+        W(sb, $"镜像: {isoPath}");
+        W(sb, "");
+
+        try
+        {
+            Check(File.Exists(isoPath), "镜像文件存在");
+            if (!File.Exists(isoPath)) return Finish();
+
+            var fi = new FileInfo(isoPath);
+            W(sb, $"文件大小: {fi.Length} 字节（{fi.Length / 1073741824.0:F2} GiB）");
+
+            var total = Stopwatch.StartNew();
+            var listSw = Stopwatch.StartNew();
+            using var disk = new ContainerDiskService(isoPath);
+            listSw.Stop();
+            W(sb, $"7-Zip 列目录: {listSw.ElapsedMilliseconds} ms");
+
+            Check(disk.Format == ContainerFormat.Iso, "识别为 ISO 容器", disk.Format.ToString());
+
+            string? sources = IsoInspectorService.FindSourcesPath(disk);
+            Check(sources != null && sources.Equals("sources", StringComparison.OrdinalIgnoreCase),
+                "自动定位 sources 目录", sources ?? "null");
+
+            var installEntry = disk.GetFiles(sources ?? "").FirstOrDefault(f =>
+                f.Name.Equals("install.wim", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("install.esd", StringComparison.OrdinalIgnoreCase));
+            Check(installEntry != null, "sources 下存在安装映像", installEntry?.Name ?? "null");
+            if (installEntry == null) return Finish();
+
+            string installPath = installEntry.FullPath;
+            W(sb, $"安装映像: {installPath} = {installEntry.Size} 字节（{installEntry.Size / 1073741824.0:F2} GiB）");
+
+            // 1) UDF 可寻址快路径：直接从 5.7 GB ISO 里取该文件的前 8 字节
+            byte[] directHead = IsoRandomAccess.TryReadRange(isoPath, installPath, 0, 8) ?? Array.Empty<byte>();
+            Check(directHead.Length == 8 && directHead[0] == 'M' && directHead[1] == 'S' &&
+                  directHead[2] == 'W' && directHead[3] == 'I' && directHead[4] == 'M',
+                "UDF 可寻址读取 WIM 魔数", directHead.Length + " 字节");
+
+            byte[] head = disk.ReadHead(installPath, WimMetadataReader.HeaderSize);
+            Check(head.Length == 208, "ReadHead 只取 208 字节", head.Length + " 字节");
+            var loc = WimMetadataReader.LocateXml(head);
+            Check(loc.Success, "WIM 头定位 XML 资源", loc.Note ?? "");
+            if (!loc.Success) return Finish();
+
+            W(sb, $"XML 资源: offset={loc.Offset}（{loc.Offset / 1073741824.0:F2} GiB）, size={loc.Size} 字节");
+            Check(loc.Offset > 1024L * 1024 * 1024, "XML 确实位于 GB 级文件尾部",
+                $"偏移 {loc.Offset / 1073741824.0:F2} GiB");
+            Check(loc.Size is > 0 and < 1024 * 1024, "XML 体积适合精确读取", loc.Size + " 字节");
+            Check(loc.HeaderImageCount > 0, "WIM 头给出映像数", loc.HeaderImageCount.ToString());
+            Check(loc.Compression.Length > 0, "识别压缩类型", loc.Compression);
+
+            // 2) 尾部随机读取：XML 应以 UTF-16LE BOM 开头
+            byte[] tail = IsoRandomAccess.TryReadRange(isoPath, installPath, loc.Offset, 16) ?? Array.Empty<byte>();
+            Check(tail.Length == 16 && tail[0] == 0xFF && tail[1] == 0xFE,
+                "按绝对偏移读回 XML（UTF-16LE BOM）", tail.Length + " 字节");
+
+            // 3) 完整检查器链路
+            var inspectSw = Stopwatch.StartNew();
+            var r = IsoInspectorService.Inspect(disk);
+            inspectSw.Stop();
+            W(sb, $"IsoInspectorService.Inspect: {inspectSw.ElapsedMilliseconds} ms");
+
+            Check(r.InstallImagePath != null, "检查器定位安装映像", r.InstallImageDisplay);
+            Check(r.InstallImageSize == installEntry.Size, "安装映像大小一致",
+                $"{r.InstallImageSize} / {installEntry.Size}");
+            Check(r.InstallImageSizeText.Length > 0 && r.InstallImageSizeText != "—",
+                "大小已格式化", r.InstallImageSizeText);
+            Check(r.Files.Count > 0, "给出 sources 文件清单", r.Files.Count + " 项");
+            Check(r.Files.Any(f => f.IsInstallImage), "安装映像被高亮标记");
+            Check(r.Wim?.Success == true, "XML 元数据解析成功", r.Wim?.Summary ?? r.Error ?? "");
+            Check(r.Images.Count > 0, "版本列表非空", r.Images.Count + " 项");
+            Check(r.Wim != null && r.Images.Count == r.Wim.HeaderImageCount,
+                "版本数与 WIM 头一致", $"{r.Images.Count} / {r.Wim?.HeaderImageCount}");
+            Check(r.Wim != null && r.Images.All(i => i.Name.Length > 0 && i.Version.Length > 0),
+                "每个版本都有名称与版本号");
+            Check(r.Wim != null && (r.Wim.XmlSource.Contains("随机") || r.Wim.XmlSource.Contains("预读")),
+                "走尾部随机读取而非全量解压", r.Wim?.XmlSource ?? "");
+            Check(r.Error == null, "无降级提示", r.Error ?? "");
+
+            W(sb, "");
+            W(sb, "-- 解析出的 Windows 版本 --");
+            foreach (var img in r.Images)
+                W(sb, $"   #{img.Index} {img.Name} | {img.Subtitle}");
+            W(sb, $"   XML 偏移: {r.XmlOffsetText}");
+
+            total.Stop();
+            W(sb, "");
+            W(sb, $"总耗时: {total.ElapsedMilliseconds} ms");
+            Check(total.ElapsedMilliseconds < 20000, "真实 ISO 检查在 20 秒内完成",
+                total.ElapsedMilliseconds + " ms");
+        }
+        catch (Exception ex)
+        {
+            Check(false, "实机验证异常", $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        return Finish();
+
+        string Finish()
+        {
+            W(sb, "");
+            W(sb, $"合计: {pass} PASS / {fail} FAIL / {pass + fail} 项");
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>用真实 ISO 渲染检查器窗口并截图（暗 / 亮）。</summary>
+    public static string RunRealUi(string isoPath, bool lightTheme)
+    {
+        var sb = new StringBuilder();
+        int pass = 0, fail = 0;
+        void Check(bool ok, string label, string detail = "")
+        {
+            W(sb, $"   [{(ok ? "PASS" : "FAIL")}] {label}{(detail.Length > 0 ? " — " + detail : "")}");
+            if (ok) pass++; else fail++;
+        }
+
+        W(sb, "=== Basalt 真实 ISO 检查器渲染验证 ===");
+        W(sb, $"主题: {(lightTheme ? "亮色" : "暗色")}");
+        W(sb, $"镜像: {isoPath}");
+        W(sb, "");
+
+        var windows = new List<Window>();
+        try
+        {
+            if (lightTheme) ((App)Application.Current).ToggleTheme();
+            Check(File.Exists(isoPath), "镜像文件存在");
+            if (!File.Exists(isoPath)) return Finish();
+
+            using var disk = new ContainerDiskService(isoPath);
+            var win = new IsoInspectorWindow(disk, Path.GetFileName(isoPath));
+            windows.Add(win);
+            win.Show();
+            win.UpdateLayout();
+
+            PumpUntil(() => win.Result != null, 60000);
+            Check(win.Result != null, "检查器异步加载完成");
+            if (win.Result == null) return Finish();
+
+            var versions = win.FindName("VersionList") as ItemsControl;
+            var files = win.FindName("FileList") as ItemsControl;
+            var sizeText = win.FindName("SizeText") as TextBlock;
+            var metaText = win.FindName("MetaText") as TextBlock;
+            var sourcesText = win.FindName("SourcesText") as TextBlock;
+            var extract = win.FindName("ExtractButton") as Button;
+
+            Check((sourcesText?.Text ?? "").Equals("sources", StringComparison.OrdinalIgnoreCase),
+                "概览显示 sources", sourcesText?.Text ?? "");
+            Check(sizeText != null && sizeText.Text.Contains("GB"), "概览显示 GB 级安装映像大小",
+                sizeText?.Text ?? "");
+            Check((metaText?.Text ?? "").Contains("已解析"), "概览显示元数据摘要", metaText?.Text ?? "");
+            Check((versions?.Items.Count ?? 0) > 0, "真实版本列表已渲染", versions?.Items.Count.ToString() ?? "");
+            Check((files?.Items.Count ?? 0) > 0, "sources 文件清单已渲染", files?.Items.Count.ToString() ?? "");
+            Check(extract?.IsEnabled == true, "提取按钮可用");
+            Check(win.Result.Error == null, "无降级提示", win.Result.Error ?? "");
+
+            W(sb, "");
+            W(sb, "-- 窗口内版本列表 --");
+            foreach (var img in win.Result.Images)
+                W(sb, $"   #{img.Index} {img.Name} | {img.Subtitle}");
+
+            string shot = Shot(win, lightTheme ? "basalt_iso_real_light.png" : "basalt_iso_real.png");
+            Check(shot.Length > 0, "真实数据截图已生成", shot);
+        }
+        catch (Exception ex)
+        {
+            Check(false, "渲染验证异常", $"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            foreach (var w in windows) { try { w.Close(); } catch { } }
+        }
+
+        return Finish();
+
+        string Finish()
+        {
+            W(sb, "");
+            W(sb, $"合计: {pass} PASS / {fail} FAIL / {pass + fail} 项");
+            return sb.ToString();
+        }
+    }
+
     // ==================== 夹具 ====================
 
     /// <summary>合成最小 WIM：208 字节头 + 未压缩 UTF-16LE XML 资源。</summary>
