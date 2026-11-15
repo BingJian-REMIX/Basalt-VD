@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="正在提取"
-        Width="500" SizeToContent="Height"
+        Width="560" SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBrush}"
@@ -10,7 +10,21 @@
         UseLayoutRounding="True">
 
     <StackPanel Margin="20">
-        <TextBlock Text="提取文件夹到本地" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <Grid Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="HeadingText" Text="提取文件夹到本地" FontSize="15"
+                       FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Border x:Name="StageBadge" Grid.Column="1" Visibility="Collapsed"
+                    Background="{DynamicResource SelectedBrush}" CornerRadius="4"
+                    Padding="8,3" Margin="10,0,0,0">
+                <TextBlock x:Name="StageText" Text="准备中" FontSize="11"
+                           Foreground="{DynamicResource FgBrush}"/>
+            </Border>
+        </Grid>
+
         <TextBlock x:Name="MessageText" Text="正在准备..." FontSize="12.5"
                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
 
@@ -23,7 +37,9 @@
                      BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
 
         <TextBlock x:Name="DetailText" Text="" FontSize="11" Margin="0,8,0,0"
-                   Foreground="{DynamicResource FgMutedBrush}" MinHeight="16"/>
+                   Foreground="{DynamicResource FgMutedBrush}" MinHeight="16"
+                   TextWrapping="Wrap" MaxHeight="48"
+                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button x:Name="CancelButton" Content="取消" Width="92" Height="30"

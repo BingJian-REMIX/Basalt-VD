@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ISO 镜像检查器"
-        Width="780" Height="860" MinWidth="660" MinHeight="520"
+        Width="800" Height="900" MinWidth="680" MinHeight="560"
         WindowStartupLocation="CenterOwner"
         Icon="/Basalt;component/Assets/basalt.ico"
         Background="{DynamicResource BgBrush}"
@@ -27,7 +27,7 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
-            <Setter Property="Margin" Value="0,12,0,5"/>
+            <Setter Property="Margin" Value="0,10,0,5"/>
         </Style>
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
@@ -35,6 +35,16 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Padding" Value="12,8"/>
+        </Style>
+        <Style x:Key="WorkTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource FgBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="5,3"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
 
@@ -52,7 +62,7 @@
                 <TextBlock Text="ISO 镜像检查器" FontSize="15" FontWeight="SemiBold"/>
                 <TextBlock x:Name="IsoNameText" FontSize="11.5" Margin="0,4,0,2"
                            Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"/>
-                <TextBlock Text="打开 ISO 时自动定位 sources 目录并读取安装映像。本窗口只做检查与提取，不会修改镜像内容。"
+                <TextBlock Text="打开 ISO 时自动定位 sources 目录并读取安装映像。精简只会生成新的 ISO 副本，源镜像全程只读。"
                            FontSize="11.5" Foreground="{DynamicResource FgMutedBrush}"
                            TextWrapping="Wrap" Margin="0,0,0,8"/>
 
@@ -89,37 +99,67 @@
                     </Grid>
                 </Border>
 
-                <!-- ============ Windows 版本列表 ============ -->
-                <TextBlock Text="包含的 Windows 版本" Style="{StaticResource SectionStyle}"/>
+                <!-- ============ Windows 版本列表（可点选要精简的版本） ============ -->
+                <TextBlock Text="包含的 Windows 版本（点击一行选择要精简的版本）" Style="{StaticResource SectionStyle}"/>
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
                         <TextBlock x:Name="VersionHint" Text="正在读取..." FontSize="11.5"
                                    Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"
                                    Margin="0,0,0,6"/>
-                        <ItemsControl x:Name="VersionList">
-                            <ItemsControl.ItemTemplate>
+                        <!-- 用纯 ItemsPresenter 模板去掉内置 ScrollViewer，让外层 ScrollViewer 统一滚动 -->
+                        <ListBox x:Name="VersionList" Background="Transparent" BorderThickness="0"
+                                 Padding="0" SelectionMode="Single"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 SelectionChanged="VersionList_SelectionChanged">
+                            <ListBox.Template>
+                                <ControlTemplate TargetType="ListBox">
+                                    <ItemsPresenter/>
+                                </ControlTemplate>
+                            </ListBox.Template>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="bd" Background="Transparent"
+                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                        BorderThickness="0,0,0,1" Padding="4,5">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="bd" Property="Background"
+                                                                Value="{DynamicResource SelectedBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Border BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="0,0,0,1" Padding="2,5">
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="{Binding IndexLabel}" FontWeight="SemiBold"
-                                                           FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                                           FontSize="12" Margin="10,0,0,0"
-                                                           Foreground="{DynamicResource FgBrush}"/>
-                                            </StackPanel>
-                                            <TextBlock Text="{Binding Subtitle}" FontSize="10.5" Margin="0,3,0,0"
-                                                       Foreground="{DynamicResource FgMutedBrush}"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Description}" FontSize="10.5" Margin="0,1,0,0"
-                                                       Foreground="{DynamicResource FgMutedBrush}"
-                                                       TextTrimming="CharacterEllipsis"/>
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding IndexLabel}" FontWeight="SemiBold"
+                                                       FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                       FontSize="12" Margin="10,0,0,0"
+                                                       Foreground="{DynamicResource FgBrush}"/>
                                         </StackPanel>
-                                    </Border>
+                                        <TextBlock Text="{Binding Subtitle}" FontSize="10.5" Margin="0,3,0,0"
+                                                   Foreground="{DynamicResource FgMutedBrush}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Description}" FontSize="10.5" Margin="0,1,0,0"
+                                                   Foreground="{DynamicResource FgMutedBrush}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
                                 </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </StackPanel>
                 </Border>
 
@@ -127,7 +167,7 @@
                 <TextBlock Text="sources 目录文件" Style="{StaticResource SectionStyle}"/>
                 <Border Style="{StaticResource CardStyle}">
                     <!-- sources 常有上百个文件，单独限高滚动，避免把整页撑得过深 -->
-                    <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto"
+                    <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <ItemsControl x:Name="FileList">
                         <ItemsControl.ItemTemplate>
@@ -163,25 +203,54 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- ============ 精简选项（固定可见，不随版本 / 文件数量被挤出视口） ============ -->
+        <!-- ============ 一键精简（固定可见，不随版本 / 文件数量被挤出视口） ============ -->
         <Border Grid.Row="1" Background="{DynamicResource PanelBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                 Padding="18,8">
             <StackPanel>
-                <TextBlock Text="精简选项（UI 占位）" FontSize="13" FontWeight="SemiBold"
-                           Foreground="{DynamicResource FgBrush}" Margin="0,0,0,4"/>
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="一键精简系统镜像" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource FgBrush}"/>
+                    <TextBlock Grid.Column="1" x:Name="EngineText" FontSize="11" Margin="12,0,0,0"
+                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Foreground="{DynamicResource FgMutedBrush}" TextTrimming="CharacterEllipsis"/>
+                </Grid>
+
                 <StackPanel Orientation="Horizontal" Margin="0,2">
                     <CheckBox x:Name="DefenderBox" Content="移除 Windows Defender" FontSize="12"
-                              Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                              Foreground="{DynamicResource FgBrush}" Margin="0,0,16,0"
                               Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
-                    <CheckBox x:Name="EdgeBox" Content="移除 Edge" FontSize="12"
-                              Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                    <CheckBox x:Name="EdgeBox" Content="移除 Edge / Xbox" FontSize="12"
+                              Foreground="{DynamicResource FgBrush}" Margin="0,0,16,0"
                               Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
-                    <CheckBox x:Name="DriverBox" Content="移除冗余驱动" FontSize="12"
+                    <CheckBox x:Name="DriverBox" Content="移除冗余旧版驱动" FontSize="12"
+                              Foreground="{DynamicResource FgBrush}" Margin="0,0,16,0"
+                              Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                    <CheckBox x:Name="KeepOthersBox" Content="保留其它版本" FontSize="12" IsChecked="True"
                               Foreground="{DynamicResource FgBrush}"
                               Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
                 </StackPanel>
-                <Grid Margin="0,5,0,0">
+
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="工作目录" FontSize="11" Margin="0,0,8,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource FgMutedBrush}"/>
+                    <TextBox Grid.Column="1" x:Name="WorkDirBox" Height="24"
+                             Style="{StaticResource WorkTextBoxStyle}"/>
+                    <Button Grid.Column="2" Content="浏览…" MinWidth="62" Height="24" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Click="BrowseWorkDir_Click"/>
+                </Grid>
+
+                <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -189,10 +258,10 @@
                     <TextBlock Grid.Column="0" x:Name="TrimSummary" FontSize="11"
                                Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"
                                VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" x:Name="ApplyTrimButton" Content="应用精简（下一版实现）"
-                            IsEnabled="False" MinWidth="150" Height="26" Margin="10,0,0,0"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            ToolTip="底层镜像修改尚未实现，本版本仅做 UI 占位"/>
+                    <Button Grid.Column="1" x:Name="ApplyTrimButton" Content="开始精简"
+                            IsEnabled="False" MinWidth="132" Height="28" Margin="10,0,0,0"
+                            Click="Trim_Click"
+                            ToolTip="生成全新的精简版 ISO，源镜像不会被修改"/>
                 </Grid>
             </StackPanel>
         </Border>

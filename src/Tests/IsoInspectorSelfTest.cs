@@ -208,6 +208,8 @@ public static class IsoInspectorSelfTest
                 var edge = win.FindName("EdgeBox") as CheckBox;
                 var driver = win.FindName("DriverBox") as CheckBox;
                 var trimSummary = win.FindName("TrimSummary") as TextBlock;
+                var workDir = win.FindName("WorkDirBox") as TextBox;
+                var keepOthers = win.FindName("KeepOthersBox") as CheckBox;
 
                 Check(sourcesText?.Text == "sources", "概览显示 sources 路径", sourcesText?.Text ?? "");
                 Check(sizeText?.Text.Length > 0 && sizeText.Text != "—", "概览显示安装映像大小", sizeText?.Text ?? "");
@@ -216,13 +218,18 @@ public static class IsoInspectorSelfTest
                 Check(files?.Items.Count == 3, "sources 文件清单渲染 3 行", files?.Items.Count.ToString() ?? "");
                 Check(extract?.IsEnabled == true, "提取按钮可用");
                 Check(defender != null && edge != null && driver != null, "三个精简勾选项存在");
-                Check(apply?.IsEnabled == false, "应用精简按钮为禁用占位");
+                Check(keepOthers?.IsChecked == true, "默认保留其它版本");
+                Check(workDir != null && workDir.Text.Contains("Basalt_Wim_Work"),
+                    "工作目录默认指向 Basalt_Wim_Work", workDir?.Text ?? "");
+                Check(apply?.Content.ToString() == "开始精简", "精简按钮已升级为「开始精简」",
+                    apply?.Content.ToString() ?? "");
+                Check(apply?.IsEnabled == false, "zip 夹具非本地 ISO，精简按钮禁用");
 
                 if (defender != null)
                 {
                     defender.IsChecked = true;
                     Check((trimSummary?.Text ?? "").Contains("已选 1 项"), "勾选后摘要更新", trimSummary?.Text ?? "");
-                    Check(apply?.IsEnabled == false, "勾选仍不启用底层修改");
+                    Check(apply?.IsEnabled == false, "非 ISO 容器即使勾选也不启用原位替换");
                 }
 
                 string shot = Shot(win, lightTheme ? "basalt_iso_ui_light.png" : "basalt_iso_ui.png");

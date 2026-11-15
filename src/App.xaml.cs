@@ -25,7 +25,7 @@ public partial class App : Application
                     args[0].Equals("stop", StringComparison.OrdinalIgnoreCase));
 
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
-        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui" or "--isotest" or "--isoui" or "--isoreal" or "--isorealui");
+        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui" or "--isotest" or "--isoui" or "--isoreal" or "--isorealui" or "--trimtest" or "--trimui" or "--trimreal" or "--trimfull" or "--trimcleanup");
         if (cli)
         {
             int code = args[0].Equals("mount", StringComparison.OrdinalIgnoreCase)
@@ -194,6 +194,54 @@ public partial class App : Application
             bool light = Array.IndexOf(args, "--light") >= 0;
             string report = Services.IsoInspectorSelfTest.RunRealUi(PathArg(args, iru + 1), light);
             WriteReport(report, light ? "basalt_isorealui_light.txt" : "basalt_isorealui.txt");
+            Shutdown();
+            return;
+        }
+        int tt = Array.IndexOf(args, "--trimtest");
+        if (tt >= 0)
+        {
+            // 一键精简端到端：wimlib capture/export + CDBuilder ISO + TrimWorkflow 全链路
+            string report = Services.TrimSelfTest.Run();
+            WriteReport(report, "basalt_trimtest.txt");
+            Shutdown();
+            return;
+        }
+        int tu = Array.IndexOf(args, "--trimui");
+        if (tu >= 0)
+        {
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.TrimSelfTest.RunUi(light);
+            WriteReport(report, light ? "basalt_trimui_light.txt" : "basalt_trimui.txt");
+            Shutdown();
+            return;
+        }
+        int tf = Array.IndexOf(args, "--trimfull");
+        if (tf >= 0)
+        {
+            // 真实 ISO 完整实跑：会写出一个全新的精简版 ISO，需要足够的临时磁盘空间。
+            // 可选 --out <iso路径> 把输出改写到空间更充裕的盘（源 ISO 所在盘可能已满）。
+            int oi = Array.IndexOf(args, "--out");
+            string outPath = oi >= 0 ? PathArg(args, oi + 1) : "";
+            string report = Services.TrimSelfTest.RunFull(PathArg(args, tf + 1), outPath);
+            WriteReport(report, "basalt_trimfull.txt");
+            Shutdown();
+            return;
+        }
+        int tr = Array.IndexOf(args, "--trimreal");
+        if (tr >= 0)
+        {
+            // 真实 ISO 干跑：只定位 extent 与预检空间，绝不写入任何文件
+            string report = Services.TrimSelfTest.RunReal(PathArg(args, tr + 1));
+            WriteReport(report, "basalt_trimreal.txt");
+            Shutdown();
+            return;
+        }
+        int tc = Array.IndexOf(args, "--trimcleanup");
+        if (tc >= 0)
+        {
+            // 维护命令：清理历史精简任务残留的工作目录（TrustedInstaller ACL 需要提权处理）
+            string report = Services.TrimWorkflow.CleanupWorkDir(PathArg(args, tc + 1));
+            WriteReport(report, "basalt_trimcleanup.txt");
             Shutdown();
             return;
         }

@@ -36,6 +36,60 @@ public partial class ProgressWindow : Window
             Finish(p.Phase == ExtractPhase.Failed);
     }
 
+    /// <summary>切换到「一键精简」模式：显示阶段徽标、重置进度条与取消按钮。</summary>
+    public void SetupTrim(string heading = "一键精简系统镜像")
+    {
+        _finished = false;
+        HeadingText.Text = heading;
+        Title = "一键精简系统镜像";
+        StageBadge.Visibility = Visibility.Visible;
+        StageText.Text = TrimStageNames.Of(TrimStage.Preparing);
+        MessageText.Text = "正在准备...";
+        DetailText.Text = "";
+        Bar.IsIndeterminate = true;
+        Bar.Value = 0;
+        CancelButton.Content = "取消";
+        CancelButton.IsEnabled = true;
+    }
+
+    /// <summary>精简流水线的阶段进度。阶段徽标 + 阶段文案 + 确定/不确定进度条。</summary>
+    public void UpdateTrim(TrimProgress p)
+    {
+        StageBadge.Visibility = Visibility.Visible;
+        StageText.Text = p.StageText;
+        MessageText.Text = p.Message;
+        DetailText.Text = p.Detail;
+
+        if (p.Percent is int pct)
+        {
+            Bar.IsIndeterminate = false;
+            Bar.Value = Math.Max(0, Math.Min(100, pct));
+        }
+        else
+        {
+            Bar.IsIndeterminate = true;
+        }
+
+        if (!p.IsFinal) return;
+
+        _finished = true;
+        Title = p.Stage switch
+        {
+            TrimStage.Done => "精简完成",
+            TrimStage.Failed => "精简失败",
+            TrimStage.Cancelled => "已取消",
+            _ => "精简结束"
+        };
+        HeadingText.Text = p.Stage == TrimStage.Done ? "精简版 ISO 已生成" : Title;
+        CancelButton.Content = "关闭";
+        CancelButton.IsEnabled = true;
+        if (p.Stage != TrimStage.Done)
+        {
+            Bar.IsIndeterminate = false;
+            Bar.Value = 0;
+        }
+    }
+
     public void SetFailed(string message)
     {
         MessageText.Text = message;

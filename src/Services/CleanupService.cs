@@ -175,10 +175,15 @@ public static class CleanupService
     }
 
     /// <summary>
-    /// 真实文件系统删除。只删内容、保留目标目录本身；
+    /// 真实文件系统删除。默认只删内容、保留目标目录本身；
     /// 跳过 reparse point（junction / 符号链接）防止删出盘符范围。
+    /// <para>
+    /// <paramref name="removeTargetRoot"/> 供 ISO 精简复用：删除整个目标目录（含空壳），
+    /// 避免镜像里残留空的 Defender / UWP 应用目录。
+    /// </para>
     /// </summary>
-    public static CleanupResult DeleteTargets(IEnumerable<CleanupTarget> targets)
+    public static CleanupResult DeleteTargets(IEnumerable<CleanupTarget> targets,
+        bool removeTargetRoot = false, bool clearReadOnly = false)
     {
         var result = new CleanupResult();
         foreach (var target in targets)
@@ -193,12 +198,18 @@ public static class CleanupService
                 continue;
             }
             if (!Directory.Exists(full)) continue;
-            DeleteTree(full, full, result, 0);
+            DeleteTree(full, full, result, 0, removeTargetRoot, clearReadOnly);
+            if (removeTargetRoot)
+            {
+                if (clearReadOnly) ClearDirReadOnly(full);
+                try { Directory.Delete(full, recursive: false); } catch { /* 非空或无权限，保留 */ }
+            }
         }
         return result;
     }
 
-    private static void DeleteTree(string dir, string targetRoot, CleanupResult result, int depth)
+    private static void DeleteTree(string dir, string targetRoot, CleanupResult result, int depth,
+        bool removeTargetRoot = false, bool clearReadOnly = false)
     {
         if (depth > MaxDepth) return;
 
@@ -219,7 +230,7 @@ public static class CleanupService
             }
             catch (Exception ex) { Record(result, child, ex); continue; }
 
-            DeleteTree(child, targetRoot, result, depth + 1);
+            DeleteTree(child, targetRoot, result, depth + 1, removeTargetRoot, clearReadOnly);
         }
 
         string[] files;
@@ -231,7 +242,10 @@ public static class CleanupService
             try
             {
                 long size = new FileInfo(file).Length;
-                File.Delete(file);          // 不主动改属性：只读/占用文件交给异常分支跳过
+                // 默认不主动改属性（VHD 深度清理保持谨慎）；ISO 精简作用于临时副本，
+                // 明确允许清除 ReadOnly，否则 wimlib apply 出来的系统文件会大量跳过。
+                if (clearReadOnly) ClearFileReadOnly(file);
+                File.Delete(file);
                 result.DeletedFiles++;
                 result.FreedBytes += size;
             }
@@ -243,8 +257,31 @@ public static class CleanupService
         // 自底向上删空子目录，保留目标目录本身
         if (!string.Equals(dir, targetRoot, StringComparison.OrdinalIgnoreCase))
         {
+            if (clearReadOnly) ClearDirReadOnly(dir);
             try { Directory.Delete(dir, recursive: false); } catch { /* 非空或无权限，保留 */ }
         }
+    }
+
+    private static void ClearFileReadOnly(string path)
+    {
+        try
+        {
+            var attr = File.GetAttributes(path);
+            if ((attr & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(path, attr & ~FileAttributes.ReadOnly);
+        }
+        catch { /* 交给 File.Delete 的异常分支记录 */ }
+    }
+
+    private static void ClearDirReadOnly(string path)
+    {
+        try
+        {
+            var attr = File.GetAttributes(path);
+            if ((attr & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(path, attr & ~FileAttributes.ReadOnly);
+        }
+        catch { /* 交给 Directory.Delete 的异常分支 */ }
     }
 
     private static void Record(CleanupResult result, string path, Exception ex)

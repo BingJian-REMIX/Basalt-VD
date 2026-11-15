@@ -23,6 +23,16 @@
     <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
   </ItemGroup>
 
+  <!-- wimlib 官方 Windows 二进制（GPLv3+ / libwim LGPL）：ISO 精简的 apply / capture / export 引擎。
+       放到输出目录的 tools\wimlib-x64\，运行时优先使用；缺失时回退到系统 DISM。
+       许可证与来源见 ..\tools\wimlib-x64\VERSION.txt / COPYING*.txt。 -->
+  <ItemGroup>
+    <None Include="..\tools\wimlib-x64\**\*">
+      <Link>tools\wimlib-x64\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- 应用图标与标题栏图标：声明为 Resource 后 WPF 会生成 pack URI（/Basalt;component/Assets/...） -->
   <ItemGroup>
     <Resource Include="Assets\basalt.ico" />

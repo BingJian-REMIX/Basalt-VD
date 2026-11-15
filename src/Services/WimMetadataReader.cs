@@ -16,6 +16,9 @@ public sealed class WindowsImageInfo
     public string Architecture { get; init; } = "";
     public string SizeText { get; init; } = "";
 
+    /// <summary>XML 里的 TOTALBYTES（未压缩体积），用于精简前的磁盘空间预估。</summary>
+    public long TotalBytes { get; init; }
+
     public string IndexLabel => $"#{Index}";
 
     public string Subtitle => string.Join(" · ", new[] { Version, Architecture, SizeText, Edition }
@@ -219,7 +222,8 @@ public static class WimMetadataReader
                 Edition = Win("EDITIONID"),
                 Version = version,
                 Architecture = ArchName(Win("ARCH")),
-                SizeText = total > 0 ? FileItemFormatter.FormatSize(total) : ""
+                SizeText = total > 0 ? FileItemFormatter.FormatSize(total) : "",
+                TotalBytes = total
             });
         }
     }
