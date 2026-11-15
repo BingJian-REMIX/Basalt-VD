@@ -2,7 +2,7 @@
 
 Windows 虚拟磁盘 / 归档镜像管理器。把 **VHD / VHDX、VMDK、压缩包、ISO、自解压程序** 统一成一个可浏览的文件树，文件内容在应用内以**纯内存流预览**，不把文件偷懒丢给外部程序。
 
-- 仓库：<https://cnb.cool/rlrs-studio/basalt-vd>
+- 主仓库：<https://cnb.cool/rlrs-studio/basalt-vd> · GitHub 镜像：<https://github.com/BingJian-REMIX/Basalt-VD>
 - 技术栈：.NET 10 · WPF · C# · MVVM · Windows 专用
 - 依赖：LTRData.DiscUtils 1.0.47、Microsoft.Management.Infrastructure 3.0.0、系统 7-Zip CLI
 
@@ -244,5 +244,5 @@ src/
 ## 12. 开发约定
 
 - 提交前至少跑 `dotnet build -c Release` 与 `--previewtest` / `--deeptest`，UI 改动另跑 `--deepui` / `--previewui` 暗亮两轮。
-- 推送到 CNB 需要带 `repo-code:rw` 权限的令牌；凭据只通过一次性 HTTP header 传入，**不要写进 `.git/config` 或提交到仓库**。
+- 已配置双推：一次 `git push origin main` 同时更新 CNB 主仓与 GitHub 镜像，两端 `main` 保持同一 hash。两个平台分别需要各自的令牌（CNB 需 `repo-code:rw`）；凭据只通过一次性 HTTP header 传入，**不要写进 `.git/config` 或提交到仓库**。
 - 新增磁盘引擎请实现 `IVirtualDisk` 并在 `DiskEngineFactory` 注册；新增自测请同时更新本文件的命令表。
