@@ -17,6 +17,7 @@ Windows 虚拟磁盘 / 归档镜像管理器。把 **VHD / VHDX、VMDK、压缩�
 | 内部预览 | 文本 / 图片 / 十六进制三个独立窗口，全部走 `IVirtualDisk.OpenRead` 流，不落地、不依赖文件路径 |
 | 文件管理 | 左侧懒加载目录树、右侧 DataGrid 原生 HICON、可点击面包屑、`..` 返回上级、表头排序、属性窗口、状态栏统计 |
 | 磁盘工具 | 深度清理、新建空白 VHDX（MBR/GPT + NTFS）、归档转 VHDX、文件夹递归提取（进度条 / 取消） |
+| ISO 检查器 | 打开 ISO 自动定位 `sources`、读取 `install.wim`/`install.esd` 大小、纯托管解析 WIM XML 版本列表、提取安装映像、精简选项 UI 占位 |
 | 生态联动 | 与 Chert 启动器联动（GUI 优先）、CLI 静默挂载 daemon，供后台调用 |
 | 体验 | 无边框窗口、亮/暗双主题、7z 中文防乱码、临时文件退出自动清理 |
 
@@ -47,7 +48,7 @@ dotnet build -c Release
 
 输出目录为 `src/bin/<Configuration>/net10.0-windows/`，已被 `.gitignore` 忽略。仓库根目录只放元文件，**项目根在 `src/`**，所有构建命令都在 `src/` 下执行。
 
-主界面「选择并挂载 VHD / VMDK」默认过滤 `*.vhd;*.vhdx;*.vmdk`。归档 / ISO / SFX 可在文件名框直接输入完整路径（引擎按魔数识别），或在已打开的镜像内双击归档「展开为容器」逐层浏览。
+主界面「选择并挂载 VHD / VMDK」过滤 `*.vhd;*.vhdx;*.vmdk;*.iso`。其它归档 / SFX 可在文件名框直接输入完整路径（引擎按魔数识别），或在已打开的镜像内双击归档「展开为容器」逐层浏览。打开 ISO 时会自动弹出 `IsoInspectorWindow`。
 
 ---
 
@@ -61,7 +62,7 @@ dotnet build -c Release
 | VMDK | `VmdkDiskService` | 伪路径：`0` = 第 0 个分区根，`0\EFI\Boot` = 分区内路径 | DiscUtils 文件系统流 | 否（只读解析，不改动原始镜像） |
 | 容器 | `ContainerDiskService` | 归档内部路径（`src\a.txt`） | `7z e -so` 的 stdout → `MemoryStream` | 否（只读列举） |
 
-`IVirtualDisk` 统一提供：列目录 / 列文件 / 提取 / 父路径 / 元数据 / 原生图标 / 面包屑 / `OpenRead` / 实体化到临时文件 / 系统默认程序打开。新增引擎只需实现该接口。
+`IVirtualDisk` 统一提供：列目录 / 列文件 / 提取 / 父路径 / 元数据 / 原生图标 / 面包屑 / `OpenRead` / `ReadHead`（默认实现，容器引擎重写为 7z 早停）/ 实体化到临时文件 / 系统默认程序打开。新增引擎只需实现该接口。
 
 > SFX 自解压 exe **绝不会被执行**：仅让 7-Zip 以归档方式尝试列举，成功才视为容器。
 
@@ -71,7 +72,7 @@ dotnet build -c Release
 
 ### 工具栏
 
-`选择并挂载 VHD / VMDK` · `卸载` · `↑ 上级` · `刷新` · `生成虚拟磁盘`（选中 `.zip`/`.7z` 时转 VHDX） · `新建虚拟磁盘` · `在 Chert 中启动` · 标题栏最右侧为亮/暗主题切换。
+`选择并挂载 VHD / VMDK` · `卸载` · `↑ 上级` · `刷新` · `生成虚拟磁盘`（选中 `.zip`/`.7z` 时转 VHDX） · `新建虚拟磁盘` · `ISO 检查器`（当前为 ISO 时启用） · `在 Chert 中启动` · 标题栏最右侧为亮/暗主题切换。
 
 ### 右键菜单
 
@@ -112,6 +113,22 @@ dotnet build -c Release
 ### 文件夹递归提取（`Services/RecursiveExtractor.cs`）
 
 右键文件夹 → 递归 `GetDirectories` / `GetFiles` 收集相对路径 → 本地 `Directory.CreateDirectory` 重建目录树（空目录也还原） → 逐个 `IVirtualDisk.OpenRead` 流 `CopyTo` 写入。含 zip-slip 越界防护、逐层异常捕获、取消令牌；`ProgressWindow` 提供扫描 Loading → 确定进度条 → 完成汇总。
+
+### ISO 检查器（`Views/IsoInspectorWindow.xaml`）
+
+打开 `.iso`（直接挂载或「展开为容器」）时自动非模态弹出；主窗口文件列表同步跳到 `sources`。工具栏 `ISO 检查器` 可随时重开。
+
+| 区块 | 行为 |
+|---|---|
+| 概览 | `sources` 路径（大小写不敏感）、`install.wim` / `install.esd` 名称与大小、WIM 元数据摘要 |
+| 版本列表 | `WimMetadataReader` 读 208 字节 WIM 头 → `rhXmlData`（+0x48）→ 未压缩 UTF-16LE XML → 解析 `<IMAGE>` 的 `DISPLAYNAME` / `VERSION` / `ARCH` / `EDITIONID` / `TOTALBYTES` |
+| 文件清单 | `sources` 下的文件与大小，安装映像高亮 |
+| 精简选项 | `移除 Windows Defender` / `移除 Edge` / `移除冗余驱动` 三个勾选框；「应用精简」按钮禁用，本版本只记录 UI 状态 |
+| 提取 | `提取 install.wim 到本地`：SaveFileDialog → 后台线程 `IVirtualDisk.ExtractFile` |
+
+**为什么加 `ReadHead`**：`install.wim` 常达 4–6 GB，`OpenRead` 会把整个文件收进 `MemoryStream`。检查器只需文件头 + XML 资源（都在开头 16 MB 内），故 `ContainerDiskService.ReadHead` 用 `7z e -so` 读够 16 MB 就 `Kill(entireProcessTree)`，VHD / VMDK 走接口默认实现从流中读够即止。
+
+**降级**：XML 资源带 `COMPRESSED(0x04)` / `SOLID(0x10)`（多见于 `install.esd` 的 LZMS）、非 WIM 输入、XML 超出预读范围 —— 均不强行解析，只显示文件清单并允许提取，界面给出明确原因。
 
 ---
 
@@ -186,8 +203,10 @@ Get-Content "$env:TEMP\basalt_previewtest.txt" -Encoding UTF8
 | `--deeptest` | 递归提取 / 深度清理 / MBR+GPT 空白 VHDX | `basalt_deeptest.txt` |
 | `--deepui [--light]` | 新增窗口渲染（暗/亮） | `basalt_deepui*.txt` |
 | `--previewui [--light]` | 三个预览窗口渲染（暗/亮） | `basalt_previewui*.txt` |
+| `--isotest` | WIM XML 解析 / sources 定位 / 映像大小 / ESD 降级 / `ReadHead` 早停 | `basalt_isotest.txt` |
+| `--isoui [--light]` | ISO 检查器窗口渲染（暗/亮） | `basalt_isoui*.txt` |
 
-渲染类自测会同时把截图写到 `%TEMP%\basalt_*.png`。当前 Release 基线：**15 组回归 0 失败套件**，Debug / Release 均 0 警告 0 错误。
+渲染类自测会同时把截图写到 `%TEMP%\basalt_*.png`。当前 Release 基线：原有回归全绿，新增 `--isotest` 30 PASS / 0 FAIL、`--isoui` 暗/亮各 13 PASS / 0 FAIL；Debug / Release 均 0 警告 0 错误。
 
 ---
 
@@ -202,14 +221,14 @@ src/
 ├── app.manifest           requireAdministrator
 ├── Assets/                图标（含多尺寸 ICO）与主题预览图
 ├── Themes/                Dark.xaml / Light.xaml（DynamicResource 配色）
-├── Views/                 8 个窗口 × XAML + code-behind
+├── Views/                 9 个窗口 × XAML + code-behind
 ├── ViewModels/            MainViewModel / BreadcrumbItem / ViewModelBase
 ├── Models/                FileItem.cs（FileItem / FileMetadata / FolderNode / FileItemFormatter）
-├── Services/              14 个业务服务（引擎、预览、清理、VHDX、CLI、Chert…）
+├── Services/              16 个业务服务（引擎、预览、清理、VHDX、CLI、Chert、WIM 元数据、ISO 检查…）
 ├── Common/                IconProvider / TempFileRegistry / RangeObservableCollection
 ├── Native/                virtdisk P/Invoke 与诊断
 ├── Properties/            AssemblyInfo.cs
-└── Tests/                 12 个自测 / 渲染测试
+└── Tests/                 13 个自测 / 渲染测试
 ```
 
 关键文件：`Services/IVirtualDisk.cs`（引擎抽象）、`Services/DiskEngineFactory.cs`（分流）、`Services/PreviewDispatcher.cs`（预览分发与嗅探）、`ViewModels/MainViewModel.cs`（UI 状态与命令）、`Services/CliMount.cs`（CLI）。
@@ -237,12 +256,14 @@ src/
 | `chert://` | 当前版本 Chert 未注册该 URL Scheme，按钮走 GUI 回退 |
 | 深度清理 | 只读引擎（VMDK / 容器 / 只读 VHD）只扫描统计，不提供删除 |
 | 归档转 VHDX | 仅 `.zip` / `.7z` 启用；NTFS 元数据会预分配，实际占用远大于归档体积 |
+| ISO 检查器 | 精简 ISO 的底层修改未实现（仅 UI 占位）；`install.esd` 的 LZMS 压缩 XML 不解析，自动降级为文件清单；分卷 `install.swm` 未纳入识别 |
+| ISO 实机 | 本机无真实 Windows ISO，自动弹出链路只经合成 WIM + zip 容器夹具验证，未对真实 ISO 实跑 |
 | 遗留 | `src/Tests/` 下文件 namespace 仍为 `Basalt.Services`（重组目录时未改，避免牵动 `App.xaml.cs` 引用） |
 
 ---
 
 ## 12. 开发约定
 
-- 提交前至少跑 `dotnet build -c Release` 与 `--previewtest` / `--deeptest`，UI 改动另跑 `--deepui` / `--previewui` 暗亮两轮。
+- 提交前至少跑 `dotnet build -c Release` 与 `--previewtest` / `--deeptest` / `--isotest`，UI 改动另跑 `--deepui` / `--previewui` / `--isoui` 暗亮两轮。
 - 已配置双推：一次 `git push origin main` 同时更新 CNB 主仓与 GitHub 镜像，两端 `main` 保持同一 hash。两个平台分别需要各自的令牌（CNB 需 `repo-code:rw`）；凭据只通过一次性 HTTP header 传入，**不要写进 `.git/config` 或提交到仓库**。
 - 新增磁盘引擎请实现 `IVirtualDisk` 并在 `DiskEngineFactory` 注册；新增自测请同时更新本文件的命令表。

@@ -60,6 +60,27 @@ public interface IVirtualDisk : IDisposable
     Stream OpenRead(string path);
 
     /// <summary>
+    /// 只预读文件开头 maxBytes 字节。用于 install.wim / install.esd 这类 GB 级文件 ——
+    /// 直接走 OpenRead 会把整个映像载入内存。默认实现从返回的流里读够即止；
+    /// 容器引擎重写为 7z -so 提前终止，避免 7-Zip 把 6 GB 全推到管道里。
+    /// </summary>
+    byte[] ReadHead(string path, int maxBytes)
+    {
+        using var s = OpenRead(path);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[64 * 1024];
+        int left = maxBytes;
+        while (left > 0)
+        {
+            int n = s.Read(chunk, 0, Math.Min(chunk.Length, left));
+            if (n <= 0) break;
+            buffer.Write(chunk, 0, n);
+            left -= n;
+        }
+        return buffer.ToArray();
+    }
+
+    /// <summary>
     /// 把镜像内的文件"实体化"到本地真实路径，返回该真实路径。
     /// 用于把归档文件交给外部程序（7-Zip）处理 —— 归档必须先落地成真实文件。
     /// VHD：路径本身就是真实的，直接返回；VMDK/容器：需先导出到临时目录。

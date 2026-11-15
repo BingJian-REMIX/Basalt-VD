@@ -38,6 +38,9 @@ public sealed class ContainerDiskService : IVirtualDisk
     public char? DriveLetter => null;
     public ContainerFormat Format { get; }
 
+    /// <summary>归档在真实文件系统上的路径（ISO 检查器需要据此自建独立引擎）。</summary>
+    public string ArchivePath => _archivePath;
+
     public ContainerDiskService(string archivePath)
     {
         _archivePath = archivePath;
@@ -430,5 +433,58 @@ public sealed class ContainerDiskService : IVirtualDisk
 
         var result = new MemoryStream(buffer.ToArray(), writable: false);
         return result;
+    }
+
+    /// <summary>
+    /// 容器引擎的头部预读：7z e -so 只取前 maxBytes 字节就终止进程。
+    /// OpenRead 会把整个文件收进 MemoryStream —— 对 4~6 GB 的 install.wim 不可接受。
+    /// </summary>
+    public byte[] ReadHead(string path, int maxBytes)
+    {
+        string? sevenZip = ContainerDetector.SevenZipPath
+            ?? throw new InvalidOperationException("未找到 7-Zip（7z.exe）。");
+
+        var psi = new ProcessStartInfo(sevenZip)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        psi.ArgumentList.Add("e");
+        psi.ArgumentList.Add("-so");
+        psi.ArgumentList.Add(_archivePath);
+        psi.ArgumentList.Add(path);
+        psi.ArgumentList.Add("-y");
+        psi.ArgumentList.Add("-bso0");
+        psi.ArgumentList.Add("-bsp0");
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("无法启动 7-Zip。");
+
+        // 异步排空 stderr，避免 7z 写错误输出时管道满而阻塞
+        _ = proc.StandardError.ReadToEndAsync();
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[64 * 1024];
+        int left = maxBytes;
+        while (left > 0)
+        {
+            int n = proc.StandardOutput.BaseStream.Read(chunk, 0, Math.Min(chunk.Length, left));
+            if (n <= 0) break;
+            buffer.Write(chunk, 0, n);
+            left -= n;
+        }
+
+        if (left == 0)
+        {
+            // 已读够，提前结束 7z，不让它继续吐剩余 GB 数据
+            try { proc.Kill(entireProcessTree: true); } catch { /* 已自行退出 */ }
+        }
+        else
+        {
+            try { proc.WaitForExit(5000); } catch { /* 超时由 Dispose 收尾 */ }
+        }
+        return buffer.ToArray();
     }
 }

@@ -98,6 +98,7 @@ public sealed class MainViewModel : ViewModelBase
     public RelayCommand LaunchChertCommand { get; }
     public RelayCommand NewDiskCommand { get; }
     public RelayCommand DeepCleanCommand { get; }
+    public RelayCommand IsoInspectCommand { get; }
 
     public MainViewModel()
     {
@@ -111,6 +112,30 @@ public sealed class MainViewModel : ViewModelBase
         LaunchChertCommand = new RelayCommand(_ => LaunchChert(), _ => _disk != null);
         NewDiskCommand = new RelayCommand(_ => NewVirtualDisk());
         DeepCleanCommand = new RelayCommand(_ => ShowDeepClean(), _ => _disk != null);
+        IsoInspectCommand = new RelayCommand(_ => TryAutoInspectIso(_disk), _ => IsIso(_disk));
+    }
+
+    private static bool IsIso(IVirtualDisk? disk)
+        => disk is ContainerDiskService { Format: ContainerFormat.Iso };
+
+    /// <summary>
+    /// 打开 / 展开 ISO 后：主窗口文件列表定位到 sources，并自动弹出 ISO 检查器。
+    /// 检查器自建独立引擎，避免非模态窗口持有随时会被卸载 / 切栈的 _disk。
+    /// 这里吞掉所有异常，不能让检查器故障影响挂载本身。
+    /// </summary>
+    private void TryAutoInspectIso(IVirtualDisk? disk)
+    {
+        if (disk == null || App.Headless || !IsIso(disk)) return;
+        try
+        {
+            string? sources = IsoInspectorService.FindSourcesPath(disk);
+            if (sources != null) NavigateTo(sources);
+            IsoInspectorWindow.Launch(((ContainerDiskService)disk).ArchivePath);
+        }
+        catch (Exception ex)
+        {
+            Status = $"ISO 检查器启动失败：{ex.Message}";
+        }
     }
 
     /// <summary>工具栏「新建虚拟磁盘」：弹出参数窗口，纯托管生成空白 NTFS VHDX。</summary>
@@ -136,8 +161,8 @@ public sealed class MainViewModel : ViewModelBase
     {
         var dialog = new OpenFileDialog
         {
-            Title = "选择虚拟磁盘文件",
-            Filter = "虚拟磁盘 (*.vhd;*.vhdx;*.vmdk)|*.vhd;*.vhdx;*.vmdk|VHD (*.vhd;*.vhdx)|*.vhd;*.vhdx|VMDK (*.vmdk)|*.vmdk"
+            Title = "选择虚拟磁盘 / ISO 镜像",
+            Filter = "虚拟磁盘 / ISO (*.vhd;*.vhdx;*.vmdk;*.iso)|*.vhd;*.vhdx;*.vmdk;*.iso|VHD (*.vhd;*.vhdx)|*.vhd;*.vhdx|VMDK (*.vmdk)|*.vmdk|ISO 镜像 (*.iso)|*.iso"
         };
         if (dialog.ShowDialog() != true) return;
         MountPath(dialog.FileName);
@@ -182,6 +207,8 @@ public sealed class MainViewModel : ViewModelBase
             // 若存在不可读分区（如 ext4 / Linux），追加说明，让用户知道为什么某些分区列不出文件
             if (disk is VmdkDiskService vmdk && !string.IsNullOrEmpty(vmdk.UnsupportedNote))
                 Status += "  ⚠ " + vmdk.UnsupportedNote;
+
+            TryAutoInspectIso(disk);
         }
         catch (Exception ex)
         {
@@ -411,6 +438,7 @@ public sealed class MainViewModel : ViewModelBase
             SelectedFolder = root;
 
             Status = $"已展开 {Path.GetFileName(real)}（{ContainerDetector.DisplayName(fmt)}）";
+            if (fmt == ContainerFormat.Iso) TryAutoInspectIso(container);
             return true;
         }
         catch (Exception ex)

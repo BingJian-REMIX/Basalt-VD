@@ -1,0 +1,213 @@
+﻿<Window x:Class="Basalt.IsoInspectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ISO 镜像检查器"
+        Width="780" Height="780" MinWidth="660" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Icon="/Basalt;component/Assets/basalt.ico"
+        Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource FgBrush}"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="LabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FgMutedBrush}"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,6"/>
+        </Style>
+        <Style x:Key="ValueStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+        <Style x:Key="SectionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+            <Setter Property="Margin" Value="0,12,0,5"/>
+        </Style>
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,8"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="18,14">
+
+                <TextBlock Text="ISO 镜像检查器" FontSize="15" FontWeight="SemiBold"/>
+                <TextBlock x:Name="IsoNameText" FontSize="11.5" Margin="0,4,0,2"
+                           Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"/>
+                <TextBlock Text="打开 ISO 时自动定位 sources 目录并读取安装映像。本窗口只做检查与提取，不会修改镜像内容。"
+                           FontSize="11.5" Foreground="{DynamicResource FgMutedBrush}"
+                           TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                <!-- ============ 概览 ============ -->
+                <Border Style="{StaticResource CardStyle}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="112"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="sources 目录" Style="{StaticResource LabelStyle}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SourcesText" Text="正在读取..."
+                                   Style="{StaticResource ValueStyle}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="安装映像" Style="{StaticResource LabelStyle}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="InstallText" Text="正在读取..."
+                                   Style="{StaticResource ValueStyle}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="文件大小" Style="{StaticResource LabelStyle}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SizeText" Text="—" FontSize="14"
+                                   FontWeight="SemiBold" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,6"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="WIM 元数据" Style="{StaticResource LabelStyle}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="MetaText" Text="正在读取..."
+                                   Style="{StaticResource ValueStyle}" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <!-- ============ Windows 版本列表 ============ -->
+                <TextBlock Text="包含的 Windows 版本" Style="{StaticResource SectionStyle}"/>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock x:Name="VersionHint" Text="正在读取..." FontSize="11.5"
+                                   Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"
+                                   Margin="0,0,0,6"/>
+                        <ItemsControl x:Name="VersionList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="0,0,0,1" Padding="2,5">
+                                        <StackPanel>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding IndexLabel}" FontWeight="SemiBold"
+                                                           FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                           FontSize="12" Margin="10,0,0,0"
+                                                           Foreground="{DynamicResource FgBrush}"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding Subtitle}" FontSize="10.5" Margin="0,3,0,0"
+                                                       Foreground="{DynamicResource FgMutedBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Description}" FontSize="10.5" Margin="0,1,0,0"
+                                                       Foreground="{DynamicResource FgMutedBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ sources 文件清单 ============ -->
+                <TextBlock Text="sources 目录文件" Style="{StaticResource SectionStyle}"/>
+                <Border Style="{StaticResource CardStyle}">
+                    <ItemsControl x:Name="FileList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="2,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11.5"
+                                               TextTrimming="CharacterEllipsis">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource FgBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsInstallImage}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="11.5"
+                                               Foreground="{DynamicResource FgMutedBrush}" Margin="12,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+
+                <!-- ============ 精简选项（UI 占位） ============ -->
+                <TextBlock Text="精简选项（UI 占位）" Style="{StaticResource SectionStyle}"/>
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="为下一版「精简 ISO」预留的勾选项。当前仅记录选择状态，不修改任何镜像内容。"
+                                   FontSize="11.5" Foreground="{DynamicResource FgMutedBrush}"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4">
+                            <CheckBox x:Name="DefenderBox" Content="移除 Windows Defender" FontSize="12"
+                                      Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                            <CheckBox x:Name="EdgeBox" Content="移除 Edge" FontSize="12"
+                                      Foreground="{DynamicResource FgBrush}" Margin="0,0,18,0"
+                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                            <CheckBox x:Name="DriverBox" Content="移除冗余驱动" FontSize="12"
+                                      Foreground="{DynamicResource FgBrush}"
+                                      Checked="TrimOption_Changed" Unchecked="TrimOption_Changed"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TrimSummary" FontSize="11" Margin="0,6,0,2"
+                                   Foreground="{DynamicResource FgMutedBrush}" TextWrapping="Wrap"/>
+                        <Button x:Name="ApplyTrimButton" Content="应用精简（下一版实现）"
+                                IsEnabled="False" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                ToolTip="底层镜像修改尚未实现，本版本仅做 UI 占位"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ============ 底部操作区 ============ -->
+        <Border Grid.Row="1" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+                Padding="18,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" x:Name="HintText" Text="正在定位 sources 目录并读取安装映像元数据..."
+                           FontSize="11" Foreground="{DynamicResource FgMutedBrush}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                <Button Grid.Column="1" x:Name="ExtractButton" Content="提取安装映像到本地"
+                        IsEnabled="False" MinWidth="168" Height="30" Margin="10,0,0,0"
+                        Click="Extract_Click"/>
+                <Button Grid.Column="2" Content="重新读取" Height="30" MinWidth="84" Margin="8,0,0,0"
+                        Style="{StaticResource SecondaryButtonStyle}" Click="Refresh_Click"/>
+                <Button Grid.Column="3" Content="关闭" Height="30" MinWidth="72" Margin="8,0,0,0"
+                        IsCancel="True" Style="{StaticResource SecondaryButtonStyle}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -116,6 +116,9 @@
                     <Button Content="新建虚拟磁盘" Command="{Binding NewDiskCommand}" Margin="8,0,0,0"
                             Style="{StaticResource SecondaryButtonStyle}"
                             ToolTip="纯托管生成带空白 NTFS 分区的 VHDX（可选 MBR / GPT）"/>
+                    <Button Content="ISO 检查器" Command="{Binding IsoInspectCommand}" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            ToolTip="当前为 ISO 镜像时：查看 sources/install.wim 大小、Windows 版本列表与精简选项占位"/>
                     <Button Content="在 Chert 中启动" Command="{Binding LaunchChertCommand}" Margin="8,0,0,0"
                             ToolTip="GUI 优先；下一版 Chert 支持 chert:// 直接唤起"/>
                 </StackPanel>

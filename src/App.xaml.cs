@@ -25,7 +25,7 @@ public partial class App : Application
                     args[0].Equals("stop", StringComparison.OrdinalIgnoreCase));
 
         // 诊断模式：Basalt.exe --diag <vhd路径>，逐步执行 P/Invoke 并输出结果
-        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui");
+        Headless = cli || args.Any(a => a is "--uitest" or "--rendertest" or "--featuretest" or "--containertest" or "--containerui" or "--nestedtest" or "--mounttest" or "--diag" or "--selftest" or "--previewtest" or "--vhdxtest" or "--clitest" or "--previewui" or "--deeptest" or "--deepui" or "--isotest" or "--isoui");
         if (cli)
         {
             int code = args[0].Equals("mount", StringComparison.OrdinalIgnoreCase)
@@ -157,6 +157,24 @@ public partial class App : Application
             bool light = Array.IndexOf(args, "--light") >= 0;
             string report = Services.DeepRenderTest.Run(light);
             WriteReport(report, light ? "basalt_deepui_light.txt" : "basalt_deepui.txt");
+            Shutdown();
+            return;
+        }
+        int isot = Array.IndexOf(args, "--isotest");
+        if (isot >= 0)
+        {
+            // ISO 检查器数据层：sources 定位 / install.wim 大小 / WIM XML 版本列表 / ESD 降级
+            string report = Services.IsoInspectorSelfTest.Run();
+            WriteReport(report, "basalt_isotest.txt");
+            Shutdown();
+            return;
+        }
+        int isou = Array.IndexOf(args, "--isoui");
+        if (isou >= 0)
+        {
+            bool light = Array.IndexOf(args, "--light") >= 0;
+            string report = Services.IsoInspectorSelfTest.RunUi(light);
+            WriteReport(report, light ? "basalt_isoui_light.txt" : "basalt_isoui.txt");
             Shutdown();
             return;
         }
